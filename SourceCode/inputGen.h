@@ -1,3 +1,5 @@
+// This file will be simply used for the generation and acquirement of user input
+
 #define FLOATMAX 10000.0
 
 
