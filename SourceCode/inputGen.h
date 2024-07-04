@@ -1,0 +1,4 @@
+
+
+
+#define FLOATMAX 10000.0

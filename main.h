@@ -4,3 +4,4 @@
 
 
 #include "./SourceCode/reductionCode.h"
+#include "./SourceCode/inputGen.h"
