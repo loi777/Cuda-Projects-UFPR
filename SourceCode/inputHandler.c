@@ -2,36 +2,58 @@
 
 //===============================
 
+float* vector = NULL;              // randomly generated vector
+unsigned nTotalElements = 0;    // size of vector
+unsigned nR = 0;                // number of repetitions
+
+//===============================
+
 
 
 // Gets from the user the size of the array to be reduced
+// and the amount of repetitions to do
 // generates it and returns
-float* getUserInput() {
-    int s;
-    printf("Write the size of the array to be generated:\n");
-    scanf("%d", &s);
+void getUserInput(int argc, char** argv) {
+    
+    // get from terminal parameters the vector size
+    if (argc >= 2) {
+        nTotalElements = atoi(argv[1]);
+    } else {
+        printf("Warning: nTotalEments not found in exec parameters\n");
+        nTotalElements = 1000;  // default value
+    }
 
-    return generateArrayInput(s);
+    // get from terminal parameters the repetition amount
+    if (argc >= 3) {
+        nR = atoi(argv[2]);
+    } else {
+        printf("Warning: nR not found in exec parameters\n");
+        nR = 1;                 // default value
+    }
+
+    generateArrayInput();
 }
+
+
+
+//------------------------------------
 
 
 
 // via parameter alloc space and fills an array of size 's'
 // returns the generated vector
-float* generateArrayInput(int s) {
-    float* vector = malloc(s * sizeof(float));
+void generateArrayInput() {
+    vector = malloc(nTotalElements * sizeof(float));
 
-    for (int x = 0; x < s; x++) {
+    for (int x = 0; x < nTotalElements; x++) {
         vector[x] = ((float)rand()/(float)(RAND_MAX)) * FLOATMAX;
     }
-
-    return vector;
 }
 
 
 
 // free memory space and destroy vector
-void destroyArrayInput(float* vector) {
+void destroyArrayInput() {
     free(vector);
 
     vector = NULL;

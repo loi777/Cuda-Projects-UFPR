@@ -2,6 +2,8 @@
 
 //======================
 
-void main() {
-    float* vector = getUserInput();
+int main(int argc, char** argv) {
+    getUserInput(argc, argv);
+
+    return 0;       // no errors
 }
