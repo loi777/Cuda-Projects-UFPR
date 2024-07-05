@@ -20,7 +20,7 @@ void getUserInput(int argc, char** argv) {
         nTotalElements = atoi(argv[1]);
     } else {
         printf("Warning: nTotalEments not found in exec parameters\n");
-        nTotalElements = 1000;  // default value
+        nTotalElements = 1000000;  // default value, 1 M
     }
 
     // get from terminal parameters the repetition amount
@@ -28,7 +28,7 @@ void getUserInput(int argc, char** argv) {
         nR = atoi(argv[2]);
     } else {
         printf("Warning: nR not found in exec parameters\n");
-        nR = 1;                 // default value
+        nR = 30;                 // default value, 30
     }
 
     generateArrayInput();
