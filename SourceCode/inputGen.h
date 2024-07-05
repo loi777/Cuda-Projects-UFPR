@@ -5,9 +5,12 @@
 
 
 // Gets from the user the size of the array to be reduced
-// and generates it in global variable arrayToReduce
-void getUserInput();
+// generates it and returns
+float* getUserInput();
 
 // via parameter alloc space and fills an array of size 's'
-// save it in the global variable arrayToReduce.
-void generateArrayInput(int s);
+// returns the generated vector
+float* generateArrayInput(int s);
+
+// free memory space and destroy vector
+void destroyArrayInput(float* vector);

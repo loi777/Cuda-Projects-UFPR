@@ -2,29 +2,37 @@
 
 //===============================
 
-float* arrayToReduce;
-
-//===============================
 
 
 // Gets from the user the size of the array to be reduced
-// and generates it in global variable arrayToReduce
-void getUserInput() {
+// generates it and returns
+float* getUserInput() {
     int s;
     printf("Write the size of the array to be generated:\n");
     scanf("%d", &s);
 
-    generateArrayInput(s);
+    return generateArrayInput(s);
 }
 
 
 
 // via parameter alloc space and fills an array of size 's'
-// save it in the global variable arrayToReduce.
-void generateArrayInput(int s) {
-    arrayToReduce = malloc(s * sizeof(float));
+// returns the generated vector
+float* generateArrayInput(int s) {
+    float* vector = malloc(s * sizeof(float));
 
     for (int x = 0; x < s; x++) {
-        arrayToReduce[x] = ((float)rand()/(float)(RAND_MAX)) * FLOATMAX;
+        vector[x] = ((float)rand()/(float)(RAND_MAX)) * FLOATMAX;
     }
+
+    return vector;
+}
+
+
+
+// free memory space and destroy vector
+void destroyArrayInput(float* vector) {
+    free(vector);
+
+    vector = NULL;
 }

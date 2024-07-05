@@ -3,5 +3,5 @@
 //======================
 
 void main() {
-    getUserInput();
+    float* vector = getUserInput();
 }

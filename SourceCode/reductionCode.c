@@ -2,13 +2,18 @@
 
 //===============================
 
-extern float* arrayToReduce;
-
-//===============================
 
 
+float reduceMax_persist(int vectorSize, float* vector) {
+    
+
+    return 0.0;
+}
 
 
-void reductionBlock() {
 
+float reduceMax_atomic_persist(int vectorSize, float* vector) {
+
+
+    return 0.0;
 }
