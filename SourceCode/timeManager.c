@@ -3,11 +3,11 @@
 //===============================
 
 float avgTimeKernel1;
-float avgTimeKernel2;
+float avgTimeKernelAtomic;
 float avgTimeKernelThrust;
 
 float avgVazaoKernel1;
-float avgVazaoKernel2;
+float avgVazaoKernelAtomic;
 float avgVazaoKernelThrust;
 
 //===============================
@@ -20,18 +20,25 @@ void outputCode() {
     //average time
     printf("\n///////////////////////\n"
             "Average Time for Kernel1: %f\n"
-            "Average Time for Kernel2: %f\n"
-            "Average Time for Thrust: %f\n", avgTimeKernel1, avgTimeKernel2, avgTimeKernelThrust);
+            "Average Time for Kernel Atomic: %f\n"
+            "Average Time for Thrust: %f\n", avgTimeKernel1, avgTimeKernelAtomic, avgTimeKernelThrust);
     
     //vazao
     printf("\n///////////////////////\n"
             "Average Vazao for Kernel1: %f\n"
-            "Average Vazao for Kernel2: %f\n"
-            "Average Vazao for Thrust: %f\n", avgVazaoKernel1, avgVazaoKernel2, avgVazaoKernelThrust);
+            "Average Vazao for Kernel Atomic: %f\n"
+            "Average Vazao for Thrust: %f\n", avgVazaoKernel1, avgVazaoKernelAtomic, avgVazaoKernelThrust);
 
     //speed compared to thrust
     printf("\n///////////////////////\n"
             "Kernel1 Speed compared to Thrust: %f\n"
-            "Kernel2 Speed compared to Thrust: %f\n", avgTimeKernel1 - avgTimeKernelThrust, avgTimeKernel2 - avgTimeKernelThrust);
+            "Kernel Atomic Speed compared to Thrust: %f\n", avgTimeKernel1 - avgTimeKernelThrust, avgTimeKernelAtomic - avgTimeKernelThrust);
 
 }
+
+
+
+//----------------------------------------------------
+
+
+

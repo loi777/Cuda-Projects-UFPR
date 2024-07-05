@@ -13,7 +13,7 @@ all : $(EXE) clean
 
 
 CFLAGS = -Wall -g
-#LDLIBS = -lm
+LDLIBS = -lm
 
 
 #--
