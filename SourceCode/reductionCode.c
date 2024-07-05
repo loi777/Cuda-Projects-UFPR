@@ -21,7 +21,7 @@ void repeatTests() {
     chrono_reset(&chronoAtomic);
     chrono_reset(&chronoThrust);
 
-    // repeat tests for amount of nT set
+    // repeat tests for amount of nR set
     for (int i = 0; i < nR; i++) {
         chrono_start(&chronoNormal);
         // reduction kernel1
