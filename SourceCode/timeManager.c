@@ -21,20 +21,20 @@ void timeOutputCode() {
 
     //average time
     printf("\n///////////////////////\n"
-            "Average Time for Kernel1: %f\n"
-            "Average Time for Kernel Atomic: %f\n"
+            "Average Time for Normal: %f\n"
+            "Average Time for Atomic: %f\n"
             "Average Time for Thrust: %f\n", TTNormal, TTAtomic, TTThrust);
     
     //vazao
     printf("\n///////////////////////\n"
-            "Average Vazao for Kernel1: %f\n"
-            "Average Vazao for Kernel Atomic: %f\n"
+            "Average Vazao for Normal: %f\n"
+            "Average Vazao for Atomic: %f\n"
             "Average Vazao for Thrust: %f\n", nTotalElements/TTNormal, nTotalElements/TTAtomic, nTotalElements/TTThrust);
 
     //speed compared to thrust
     printf("\n///////////////////////\n"
-            "Kernel1 Speed compared to Thrust: %f\n"
-            "Kernel Atomic Speed compared to Thrust: %f\n", TTNormal - TTThrust, TTAtomic - TTThrust);
+            "Normal Speed compared to Thrust: %f\n"
+            "Atomic Speed compared to Thrust: %f\n", TTNormal - TTThrust, TTAtomic - TTThrust);
 
 }
 
