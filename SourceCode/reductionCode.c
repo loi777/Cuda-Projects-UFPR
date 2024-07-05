@@ -3,8 +3,8 @@
 //===============================
 
 
-
-float reduceMax_persist(int vectorSize, float* vector) {
+// receiving a vector and size, it returns the recudtion max()
+float reduceMax_persist(unsigned vectorSize, float* vector) {
     
 
     return 0.0;
@@ -12,7 +12,9 @@ float reduceMax_persist(int vectorSize, float* vector) {
 
 
 
-float reduceMax_atomic_persist(int vectorSize, float* vector) {
+// receiving a vector and size, it returns the recudtion max()
+// version using atomic
+float reduceMax_atomic_persist(unsigned vectorSize, float* vector) {
 
 
     return 0.0;
