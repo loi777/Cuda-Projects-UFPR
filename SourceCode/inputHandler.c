@@ -2,7 +2,7 @@
 
 //===============================
 
-float* vector = NULL;              // randomly generated vector
+float* vector = NULL;           // randomly generated vector
 unsigned nTotalElements = 0;    // size of vector
 unsigned nR = 0;                // number of repetitions
 

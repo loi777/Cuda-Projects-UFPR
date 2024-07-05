@@ -7,7 +7,7 @@ int main(int argc, char** argv) {
 
     //-----------------
 
-    // reduction code functionality
+    repeatTests()
 
     //-----------------
 
