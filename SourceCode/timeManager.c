@@ -15,7 +15,7 @@ float avgVazaoKernelThrust;
 
 
 // Print out the time information and output of each kernel
-void outputCode() {
+void timeOutputCode() {
 
     //average time
     printf("\n///////////////////////\n"
