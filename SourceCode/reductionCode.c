@@ -6,24 +6,34 @@ extern float* vector;               // randomly generated vector
 extern unsigned nTotalElements;    // size of vector
 extern unsigned nR;                // number of repetitions
 
+extern chronometer_t chronoNormal;
+extern chronometer_t chronoAtomic;
+extern chronometer_t chronoThrust;
+
 //===============================
 
 
 
 // repeat all 3 kernels and average their outputs
 void repeatTests() {
+    // zero chrono values
+    chrono_reset(&chronoNormal);
+    chrono_reset(&chronoAtomic);
+    chrono_reset(&chronoThrust);
+
+    // repeat tests for amount of nT set
     for (int i = 0; i < nR; i++) {
-        // start timer
+        chrono_start(&chronoNormal);
         // reduction kernel1
-        // end timer
+        chrono_stop(&chronoNormal);
 
-        // start timer
+        chrono_start(&chronoAtomic);
         // reduction kernel Atomic
-        // end timer
+        chrono_stop(&chronoAtomic);
 
-        // start timer
+        chrono_start(&chronoThrust);
         // reduction thrust
-        // end timer
+        chrono_stop(&chronoThrust);
     }
 }
 
