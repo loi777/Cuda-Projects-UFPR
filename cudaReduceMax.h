@@ -17,11 +17,6 @@
 #include <time.h>
 // > library from teacher's chrono.c code
 
-#include "./SourceCode/reductionCode.h"
-#include "./SourceCode/inputHandler.h"
-#include "./SourceCode/timeManager.h"
-#include "./SourceCode/GPUhandler.h"
-
 typedef unsigned int u_int;
 
 #endif

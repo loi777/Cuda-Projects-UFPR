@@ -2,13 +2,20 @@
 
 //===============================
 
-extern float* vector;               // randomly generated vector
-extern unsigned nTotalElements;    // size of vector
-extern unsigned nR;                // number of repetitions
+//extern float* vector;               // randomly generated vector
+//extern unsigned nTotalElements;    // size of vector
+//extern unsigned nR;                // number of repetitions
+//
+//extern chronometer_t chronoNormal;
+//extern chronometer_t chronoAtomic;
+//extern chronometer_t chronoThrust;
+float* vector;               // randomly generated vector
+unsigned nTotalElements;    // size of vector
+unsigned nR;                // number of repetitions
 
-extern chronometer_t chronoNormal;
-extern chronometer_t chronoAtomic;
-extern chronometer_t chronoThrust;
+chronometer_t chronoNormal;
+chronometer_t chronoAtomic;
+chronometer_t chronoThrust;
 
 //===============================
 

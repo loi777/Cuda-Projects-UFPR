@@ -2,6 +2,8 @@
 #ifndef __GPU_HANDLER__
 #define __GPU_HANDLER__
 
+#include "../cudaReduceMax.h"
+
 #define NTHREADS 4
 #define NBLOCOS 5
 

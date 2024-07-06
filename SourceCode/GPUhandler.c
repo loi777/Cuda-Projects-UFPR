@@ -1,1 +1,1 @@
-#include "../cudaReduceMax.h"
+#include "GPUhandler.h"

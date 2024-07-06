@@ -1,4 +1,4 @@
-#include "../cudaReduceMax.h"
+#include "inputHandler.h"
 
 //===============================
 
@@ -31,7 +31,7 @@ void getUserInput(int argc, char** argv, float *vector, u_int *nTotalElements, u
         *nR = 30;                 // default value, 30
     }
 
-    generateArrayInput();
+    generateArrayInput(vector, nTotalElements);
 }
 
 
@@ -42,10 +42,10 @@ void getUserInput(int argc, char** argv, float *vector, u_int *nTotalElements, u
 
 // via parameter alloc space and fills an array of size 's'
 // returns the generated vector
-void generateArrayInput() {
-    vector = malloc(nTotalElements * sizeof(float));
+void generateArrayInput(float *vector, u_int *nTotalElements) {
+    vector = malloc(*nTotalElements * sizeof(float));
 
-    for (int x = 0; x < nTotalElements; x++) {
+    for (int x = 0; x < *nTotalElements; x++) {
         vector[x] = ((float)rand()/(float)(RAND_MAX)) * FLOATMAX;
     }
 }
@@ -53,7 +53,7 @@ void generateArrayInput() {
 
 
 // free memory space and destroy vector
-void destroyArrayInput() {
+void destroyArrayInput(float *vector) {
     free(vector);
 
     vector = NULL;

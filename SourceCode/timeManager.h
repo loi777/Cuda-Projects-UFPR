@@ -2,6 +2,8 @@
 #ifndef __TIME_MANAGER__
 #define __TIME_MANAGER__
 
+#include "../cudaReduceMax.h"
+
 typedef struct {
 
   struct timespec xadd_time1, xadd_time2;

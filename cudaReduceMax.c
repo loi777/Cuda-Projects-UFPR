@@ -1,4 +1,9 @@
 #include "cudaReduceMax.h"
+#include "./SourceCode/reductionCode.h"
+#include "./SourceCode/inputHandler.h"
+#include "./SourceCode/timeManager.h"
+#include "./SourceCode/GPUhandler.h"
+
 
 //======================
 
@@ -11,13 +16,13 @@ int main(int argc, char** argv) {
 
   //-----------------
 
-  repeatTests();
+  //repeatTests();
 
   //-----------------
 
   //outputCode();
 
-  destroyArrayInput();
+  destroyArrayInput(vector);
 
   //-----------------
 
