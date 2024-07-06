@@ -1,4 +1,6 @@
 // This file will be used for timing of our functions and code performance
+#ifndef __TIME_MANAGER__
+#define __TIME_MANAGER__
 
 typedef struct {
 
@@ -27,3 +29,5 @@ inline long long  chrono_gettotal(chronometer_t* chrono);
 
 // returns the amount of stops since last reset
 inline long long  chrono_getcount(chronometer_t* chrono);
+
+#endif // !__TIME_MANAGER__

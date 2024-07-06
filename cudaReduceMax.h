@@ -1,3 +1,6 @@
+#ifndef __CUDA_REDUCE_MAX__
+#define __CUDA_REDUCE_MAX__
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
@@ -18,3 +21,7 @@
 #include "./SourceCode/inputHandler.h"
 #include "./SourceCode/timeManager.h"
 #include "./SourceCode/GPUhandler.h"
+
+typedef unsigned int u_int;
+
+#endif
