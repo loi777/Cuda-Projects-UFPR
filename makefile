@@ -1,4 +1,4 @@
-EXE = main
+EXE = cudaReduceMax
 
 SRC = $(wildcard ./SourceCode/*.c)
 OBJ = $(SRC:.c=.o)

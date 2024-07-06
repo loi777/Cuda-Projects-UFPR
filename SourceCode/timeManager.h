@@ -1,18 +1,16 @@
 // This file will be used for timing of our functions and code performance
 
-
 typedef struct {
 
-     struct timespec xadd_time1, xadd_time2;
-     long long totalTime;
-     long totalStops;
-    
+  struct timespec xadd_time1, xadd_time2;
+  long long totalTime;
+  long totalStops;
+
 } chronometer_t;
 
 
 // Print out the time information and output of each kernel
 void timeOutputCode();
-
 
 // resets values from chronos
 void chrono_reset(chronometer_t* chrono);
