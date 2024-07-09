@@ -13,6 +13,6 @@ debug: CFLAGS += -lineinfo -I/usr/lib/nvidia-cuda-toolkit/compute-sanitizer -g
 debug: all
 
 clean:
-	rm -r *.o
+	-rm -f *.o
 purge: clean
-	rm -r $(EXEC)
+	-rm -f $(EXEC)
