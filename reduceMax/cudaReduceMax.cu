@@ -18,20 +18,55 @@
 
 typedef unsigned int u_int;
 
-
+#define MAX(a,b) ((a)>(b) ? (a) : (b))
 
 //=========================================================================
 
 
 
 __global__ void reduceMax_persist(float *max, float *input, int nElements) {
-  u_int i;
-  #define INITIAL (blockDim.x * blockIdx.x + threadIdx.x)
-  #define NTA (gridDim.x * blockDim.x)
+  u_int blockSize = THREADS*2;                      // the size of the vector segment to reduce
+  u_int blockStartPosi = blockIdx.x * blockSize;    // the starting index of current block
+  u_int startIndexAdd = blockSize * BLOCKS;         // every loop adds to block start position
 
-  for (i=INITIAL; i<nElements ;i+=NTA)
-    if (input[i] > *max)
-      *max = input[i];
+  u_int threadsActive;                              // how many threads the block is using
+
+  u_int indexToCompare;                             // used to know where to compare
+  u_int currentI;                                   // this saves a few calculations each loop
+
+  // Initial loop where we scan MOST of the vector
+  // there will be 1 value to compare at the index where every block started
+
+  for (; blockStartPosi < nElements; blockStartPosi += startIndexAdd) {
+    // OUTER LOOP, where we increment the position of every block
+
+    indexToCompare = 1;
+    currentI = startIndexAdd + (threadIdx.x * 2);
+
+    // INSIDE LOOP, where threads compare values inside block
+    for (threadsActive = THREADS; threadsActive > 0; threadsActive /= 2) {
+      if (threadsActive < threadIdx.x) {
+        continue;     // skip this thread, for it is inactive
+      }
+
+      input[currentI] = MAX(input[currentI] , input[currentI + (indexToCompare)]);
+
+      indexToCompare *= 2;
+      currentI *= 2;
+    }
+
+    // Exiting the inside loop there will be missing 1 last process
+    // let thread 0 do this last comparison
+    if (threadIdx.x == 0) {
+      input[currentI] = MAX(input[currentI] , input[currentI + (indexToCompare)]);
+    }
+  }
+
+  // Final comparison utilizing ATOMIC operations
+  // We compare the "winner" of every block against the other
+
+  //***
+
 }
 
 
@@ -78,6 +113,8 @@ inline void checkResultFailure(float max, float h_max) {
   } else { printf("Max value: %.6f\n", h_max); }
 }
 
+
+
 //=========================================================================
 
 
@@ -89,6 +126,7 @@ int main(int argc, char **argv) {
   float max = 0;                            // max value
   u_int numElements = atoi(argv[1]);
   u_int nR = atoi(argv[2]);
+
   chronometer_t chrono_Normal;                     // Chronometer
   chronometer_t chrono_Atomic;                     // Chronometer
   chronometer_t chrono_Thrust;                     // Chronometer
