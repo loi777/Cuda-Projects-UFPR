@@ -47,7 +47,9 @@ int main(int argc, char **argv) {
   float max = 0;                            // max value
   u_int numElements = atoi(argv[1]);
   u_int nR = atoi(argv[2]);
-  chronometer_t chrono;                     // Chronometer
+  chronometer_t chrono_Normal;                     // Chronometer
+  chronometer_t chrono_Atomic;                     // Chronometer
+  chronometer_t chrono_Thrust;                     // Chronometer
 
   printf("Running reduceMax for %d elements\n", numElements);
   size_t size = numElements * sizeof(float);
@@ -92,12 +94,12 @@ int main(int argc, char **argv) {
   // EXECUTE PERSIST ============================
 
   printf("\n === EXECUTANDO KERNEL PERSIST ===\n");
-  chrono_reset(&chrono);
-  chrono_start(&chrono);
+  chrono_reset(&chrono_Normal);
+  chrono_start(&chrono_Normal);
   for (int i = 0; i < nR; ++i) 
     reduceMax_persist<<<NP*THREADS, THREADS>>>(d_max, d_input, numElements);
   cudaDeviceSynchronize();
-  chrono_stop(&chrono);
+  chrono_stop(&chrono_Normal);
   err = cudaGetLastError();
   if ( CHECK(err != cudaSuccess, "Failed to launch reduceMax_persist kernel (error code %s)!\n", cudaGetErrorString(err)) )
     exit(EXIT_FAILURE);
@@ -114,20 +116,20 @@ int main(int argc, char **argv) {
   } else { printf("Max value: %.6f\n", h_max); }
 
   printf("Tempo médio por ativação do kernel" );
-  chrono_report_TimeInLoop( &chrono, (char *)"reduceMax_persist", nR);
-  double reduce_time_seconds = (double) chrono_gettotal( &chrono )/((double)1000*1000*1000);
+  chrono_report_TimeInLoop( &chrono_Normal, (char *)"reduceMax_persist", nR);
+  double reduce_time_seconds = (double) chrono_gettotal( &chrono_Normal )/((double)1000*1000*1000);
   printf( "Total_time_in_seconds: %lf s\n", reduce_time_seconds );
   printf( "Throughput: %lf INT/s\n", (numElements)/reduce_time_seconds );
 
   // EXECUTE ATOMIC =============================
 
   printf("\n === EXECUTANDO KERNEL ATOMIC ===\n");
-  chrono_reset(&chrono);
-  chrono_start(&chrono);
+  chrono_reset(&chrono_Atomic);
+  chrono_start(&chrono_Atomic);
   for (int i = 0; i < nR; ++i) 
     reduceMax_persist<<<NP*THREADS, THREADS>>>(d_max, d_input, numElements);
   cudaDeviceSynchronize();
-  chrono_stop(&chrono);
+  chrono_stop(&chrono_Atomic);
   err = cudaGetLastError();
   if ( CHECK(err != cudaSuccess, "Failed to launch reduceMax_persist kernel (error code %s)!\n", cudaGetErrorString(err)) )
     exit(EXIT_FAILURE);
@@ -144,21 +146,21 @@ int main(int argc, char **argv) {
   } else { printf("Max value: %.6f\n", h_max); }
 
   printf("Tempo médio por ativação do kernel" );
-  chrono_report_TimeInLoop( &chrono, (char *)"reduceMax_atomic_persist", nR);
+  chrono_report_TimeInLoop( &chrono_Atomic, (char *)"reduceMax_atomic_persist", nR);
 
-  double atomic_time_seconds = (double) chrono_gettotal( &chrono )/((double)1000*1000*1000);
+  double atomic_time_seconds = (double) chrono_gettotal( &chrono_Atomic )/((double)1000*1000*1000);
   printf( "Total_time_in_seconds: %lf s\n", atomic_time_seconds );
   printf( "Throughput: %lf INT/s\n", (numElements)/atomic_time_seconds );
 
   // EXECUTE THRUST =============================
 
   printf("\n === EXECUTANDO KERNEL THRUST ===\n");
-  chrono_reset(&chrono);
-  chrono_start( &chrono );
+  chrono_reset(&chrono_Thrust);
+  chrono_start( &chrono_Thrust );
   for (int i = 0; i < nR; ++i)
     h_max = *(thrust::max_element(thrust_d_input.begin(), thrust_d_input.end()));
   cudaDeviceSynchronize();
-  chrono_stop( &chrono );
+  chrono_stop( &chrono_Thrust );
 
   // Verify that the result is correct
   if ( max != h_max ) {
@@ -167,9 +169,9 @@ int main(int argc, char **argv) {
   } else { printf("Max value: %.6f\n", h_max); }
 
   printf("Tempo médio por ativação do kernel" );
-  chrono_report_TimeInLoop( &chrono, (char *)"thrust max_element", nR);
+  chrono_report_TimeInLoop( &chrono_Thrust, (char *)"thrust max_element", nR);
 
-  double thrust_time_seconds = (double) chrono_gettotal( &chrono )/((double)1000*1000*1000);
+  double thrust_time_seconds = (double) chrono_gettotal( &chrono_Thrust )/((double)1000*1000*1000);
   printf( "Total_time_in_seconds: %lf s\n", thrust_time_seconds );
   printf( "Throughput: %lf INT/s\n", (numElements)/thrust_time_seconds );
 
