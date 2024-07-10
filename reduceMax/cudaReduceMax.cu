@@ -51,6 +51,7 @@ __global__ void reduceMax_atomic_persist(float *max, float *input, int nElements
 //-------------------
 
 
+
 void generateRandArray(u_int numElements, float* h_input, float max) {
   // Initialize the host input vectors
   int a;
@@ -64,6 +65,18 @@ void generateRandArray(u_int numElements, float* h_input, float max) {
   }
 }
 
+
+
+//-------------------
+
+
+
+inline void checkResultFailure(float max, float h_max) {
+  if ( max != h_max ) {
+    fprintf(stderr, "Result verification failed!\n");
+    exit(EXIT_FAILURE);
+  } else { printf("Max value: %.6f\n", h_max); }
+}
 
 //=========================================================================
 
@@ -126,6 +139,8 @@ int main(int argc, char **argv) {
     reduceMax_persist<<<NP*THREADS, THREADS>>>(d_max, d_input, numElements);
   cudaDeviceSynchronize();
   chrono_stop(&chrono_Normal);
+
+  // check for error
   err = cudaGetLastError();
   if ( CHECK(err != cudaSuccess, "Failed to launch reduceMax_persist kernel (error code %s)!\n", cudaGetErrorString(err)) )
     exit(EXIT_FAILURE);
@@ -136,18 +151,11 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
 
   // Verify that the result is correct
-  if ( max != h_max ) {
-    fprintf(stderr, "Result verification failed!\n");
-    exit(EXIT_FAILURE);
-  } else { printf("Max value: %.6f\n", h_max); }
+  checkResultFailure(max, h_max);
 
-  printf("Tempo médio por ativação do kernel" );
-  chrono_report_TimeInLoop( &chrono_Normal, (char *)"reduceMax_persist", nR);
-  double reduce_time_seconds = (double) chrono_gettotal( &chrono_Normal )/((double)1000*1000*1000);
-  printf( "Total_time_in_seconds: %lf s\n", reduce_time_seconds );
-  printf( "Throughput: %lf INT/s\n", (numElements)/reduce_time_seconds );
 
   // EXECUTE ATOMIC =============================
+
 
   printf("\n === EXECUTANDO KERNEL ATOMIC ===\n");
   chrono_reset(&chrono_Atomic);
@@ -156,6 +164,8 @@ int main(int argc, char **argv) {
     reduceMax_persist<<<NP*THREADS, THREADS>>>(d_max, d_input, numElements);
   cudaDeviceSynchronize();
   chrono_stop(&chrono_Atomic);
+
+  // check for error
   err = cudaGetLastError();
   if ( CHECK(err != cudaSuccess, "Failed to launch reduceMax_persist kernel (error code %s)!\n", cudaGetErrorString(err)) )
     exit(EXIT_FAILURE);
@@ -166,19 +176,11 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
 
   // Verify that the result is correct
-  if ( max != h_max ) {
-    fprintf(stderr, "Result verification failed!\n");
-    exit(EXIT_FAILURE);
-  } else { printf("Max value: %.6f\n", h_max); }
+  checkResultFailure(max, h_max);
 
-  printf("Tempo médio por ativação do kernel" );
-  chrono_report_TimeInLoop( &chrono_Atomic, (char *)"reduceMax_atomic_persist", nR);
-
-  double atomic_time_seconds = (double) chrono_gettotal( &chrono_Atomic )/((double)1000*1000*1000);
-  printf( "Total_time_in_seconds: %lf s\n", atomic_time_seconds );
-  printf( "Throughput: %lf INT/s\n", (numElements)/atomic_time_seconds );
 
   // EXECUTE THRUST =============================
+
 
   printf("\n === EXECUTANDO KERNEL THRUST ===\n");
   chrono_reset(&chrono_Thrust);
@@ -189,19 +191,55 @@ int main(int argc, char **argv) {
   chrono_stop( &chrono_Thrust );
 
   // Verify that the result is correct
-  if ( max != h_max ) {
-    fprintf(stderr, "Result verification failed!\n");
-    exit(EXIT_FAILURE);
-  } else { printf("Max value: %.6f\n", h_max); }
+  checkResultFailure(max, h_max);
 
-  printf("Tempo médio por ativação do kernel" );
+
+  // IMPRIME RESULTADOS ===================================
+
+
+  printf("\n === RESULTADOS ===\n");
+
+  //--
+
+  printf("\n----THRUST\n");
+  printf("Delta time: " );
   chrono_report_TimeInLoop( &chrono_Thrust, (char *)"thrust max_element", nR);
 
   double thrust_time_seconds = (double) chrono_gettotal( &chrono_Thrust )/((double)1000*1000*1000);
-  printf( "Total_time_in_seconds: %lf s\n", thrust_time_seconds );
-  printf( "Throughput: %lf INT/s\n", (numElements)/thrust_time_seconds );
+  printf( "Tempo em segundos: %lf s\n", thrust_time_seconds );
+  printf( "Vazão: %lf INT/s\n", (numElements)/thrust_time_seconds );
+
+  //--
+
+  printf("\n----PERSIST\n");
+  printf("Delta time: " );
+  chrono_report_TimeInLoop( &chrono_Normal, (char *)"reduceMax_persist", nR);
+
+  double reduce_time_seconds = (double) chrono_gettotal( &chrono_Normal )/((double)1000*1000*1000);
+  printf( "Tempo em segundos: %lf s\n", reduce_time_seconds );
+  printf( "Vazão: %lf INT/s\n", (numElements)/reduce_time_seconds );
+
+  printf("--Tempo em relacao ao Thrust");
+  printf("Em segundos: %lf", reduce_time_seconds - thrust_time_seconds);
+  printf("Em porcento: %lf", (thrust_time_seconds/reduce_time_seconds)*100.0);
+
+  //--
+
+  printf("\n----ATOMIC\n");
+  printf("Delta time: " );
+  chrono_report_TimeInLoop( &chrono_Atomic, (char *)"reduceMax_atomic_persist", nR);
+
+  double atomic_time_seconds = (double) chrono_gettotal( &chrono_Atomic )/((double)1000*1000*1000);
+  printf( "Tempo em segundos: %lf s\n", atomic_time_seconds );
+  printf( "Vazão: %lf INT/s\n", (numElements)/atomic_time_seconds );
+
+  printf("--Tempo em relacao ao Thrust");
+  printf("Em segundos: %lf", atomic_time_seconds - thrust_time_seconds);
+  printf("Em porcento: %lf", (thrust_time_seconds/atomic_time_seconds)*100.0);
+
 
   // FINALIZA ===================================
+
 
   // Free device and host memory
   err = cudaFree(d_input);
