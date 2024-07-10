@@ -18,6 +18,12 @@
 
 typedef unsigned int u_int;
 
+
+
+//=========================================================================
+
+
+
 __global__ void reduceMax_persist(float *max, float *input, int nElements) {
   u_int i;
   #define INITIAL (blockDim.x * blockIdx.x + threadIdx.x)
@@ -29,6 +35,7 @@ __global__ void reduceMax_persist(float *max, float *input, int nElements) {
 }
 
 
+
 __global__ void reduceMax_atomic_persist(float *max, float *input, int nElements) {
   u_int i;
   #define INITIAL (blockDim.x * blockIdx.x + threadIdx.x)
@@ -38,6 +45,28 @@ __global__ void reduceMax_atomic_persist(float *max, float *input, int nElements
     if (input[i] > *max)
       *max = input[i];
 }
+
+
+
+//-------------------
+
+
+void generateRandArray(u_int numElements, float* h_input, float max) {
+  // Initialize the host input vectors
+  int a;
+  int b;
+
+  for (int i = 0; i < numElements; ++i) {
+    a = rand();
+    b = rand();
+
+    h_input[i] = a * 100.0 + b;
+  }
+}
+
+
+//=========================================================================
+
 
 
 int main(int argc, char **argv) {
@@ -54,7 +83,7 @@ int main(int argc, char **argv) {
   printf("Running reduceMax for %d elements\n", numElements);
   size_t size = numElements * sizeof(float);
 
-  // INICIA VARIAVEIS LOCAIS
+  //------------------------ INICIA VARIAVEIS LOCAIS
   
   // Allocate the host input vector A and check
   h_input = (float *)malloc(size);
@@ -62,12 +91,9 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
 
   // Initialize the host input vectors
-  for (int i = 0; i < numElements; ++i) {
-    h_input[i] = rand() % 100;
-    if ( h_input[i] > max ) { max = h_input[i]; }
-  }
+  generateRandArray(numElements, h_input, max);
 
-  // COPIA DADOS PRA GPU
+  //------------------------ COPIA DADOS PRA GPU
 
   // Allocate the device input vector A
   d_input = NULL;
