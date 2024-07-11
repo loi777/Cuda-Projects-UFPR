@@ -35,28 +35,21 @@ __device__ __forceinline__ float atomicMaxFloat (float * addr, float value) {
 
 
 __global__ void reduceMax_persist__(float *max, float *input, int nElements) {
-  extern __shared__ float finalVector[];
+  int idx = blockDim.x * blockIdx.x + threadIdx.x;
 
-    int gId = (blockDim.x * blockIdx.x) + threadIdx.x;
-    finalVector[threadIdx.x] = 0;                              // default value
-
-    if (gId < nElements) {
-        finalVector[threadIdx.x] = input[gId];
-    }
-    __syncthreads();
-
-    for (unsigned int s =blockDim.x/2; s>0; s>>=1) {
-        if (threadIdx.x < s && gId < nElements) {
-          finalVector[threadIdx.x] = MAX(finalVector[threadIdx.x], finalVector[threadIdx.x + s]);  // 2
-        }
-        __syncthreads();
-    }
+  if (idx < nElements){
+      for(int stride=1; stride < nElements; stride *= 2) {
+          if (idx % (2*stride) == 0) {
+              input[idx] = MAX(input[idx], input[idx + stride]);
+          }
+          __syncthreads();
+      }
+  }
 
     // Final comparison utilizing ATOMIC operations
     // We compare the "winner" of every block against the other
   
-    *max = atomicMaxFloat(max, finalVector[threadIdx.x]);        // after making index 0 the max value, transfer to max
-
+    *max = atomicMaxFloat(max, input[0]);        // after making index 0 the max value, transfer to max
 }
 
 __global__ void reduceMax_persist(float *max, float *input, int nElements) {
