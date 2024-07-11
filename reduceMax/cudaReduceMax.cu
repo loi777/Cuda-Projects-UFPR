@@ -34,7 +34,7 @@ __device__ __forceinline__ float atomicMaxFloat (float * addr, float value) {
 //-----------------------------------------------------------
 
 
-__global__ void reduceMax_persist__(float *max, float *input, int nElements) {
+__global__ void reduceMax_persist(float *max, float *input, int nElements) {
   int idx = blockDim.x * blockIdx.x + threadIdx.x;
 
   if (idx < nElements){
@@ -52,24 +52,24 @@ __global__ void reduceMax_persist__(float *max, float *input, int nElements) {
     *max = atomicMaxFloat(max, input[0]);        // after making index 0 the max value, transfer to max
 }
 
-__global__ void reduceMax_persist(float *max, float *input, int nElements) {
-  u_int i;
-  #define INITIAL (blockDim.x * blockIdx.x + threadIdx.x)
-  #define NTA (gridDim.x * blockDim.x)
-
-  for (i=INITIAL; i<nElements ;i+=NTA)
-    if (input[i] > *max)
-      *max = input[i];
-}
 
 
-__global__ void reduceMax_atomic_persist(float *max, float *input, int nElements) {
-  u_int i;
-  #define INITIAL (blockDim.x * blockIdx.x + threadIdx.x)
-  #define NTA (gridDim.x * blockDim.x)
+__global__ void reduceMax_persist_Atomic(float *max, float *input, int nElements) {
+  int idx = blockDim.x * blockIdx.x + threadIdx.x;
 
-  for (i=INITIAL; i<nElements ;i+=NTA)
-    *max = atomicMaxFloat(max, input[i]);
+  if (idx < nElements){
+      for(int stride=1; stride < nElements; stride *= 2) {
+          if (idx % (2*stride) == 0) {
+              input[idx] = atomicMaxFloat(&input[idx], input[idx + stride]);
+          }
+          __syncthreads();
+      }
+  }
+
+    // Final comparison utilizing ATOMIC operations
+    // We compare the "winner" of every block against the other
+  
+    *max = atomicMaxFloat(max, input[0]);        // after making index 0 the max value, transfer to max
 }
 
 
@@ -238,6 +238,8 @@ int main(int argc, char **argv) {
 
     cudaDeviceSynchronize();
     chrono_stop(&chrono_Normal);
+
+    copyHostToDeviceVector(d_input, h_input, numElements);
   }
 
   checkProcessFailure();
@@ -257,7 +259,7 @@ int main(int argc, char **argv) {
   for (int i = 0; i < nR; ++i) {
     chrono_start(&chrono_Atomic);
 
-    reduceMax_atomic_persist<<<NP*BLOCKS, THREADS>>>(d_max, d_input, numElements);
+    reduceMax_persist_Atomic<<<NP*BLOCKS, THREADS>>>(d_max, d_input, numElements);
 
     cudaDeviceSynchronize();
     chrono_stop(&chrono_Atomic);
