@@ -263,6 +263,8 @@ int main(int argc, char **argv) {
 
     cudaDeviceSynchronize();
     chrono_stop(&chrono_Atomic);
+
+    copyHostToDeviceVector(d_input, h_input, numElements);
   }
 
   checkProcessFailure();
