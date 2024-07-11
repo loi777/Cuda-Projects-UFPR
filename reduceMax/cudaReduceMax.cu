@@ -83,7 +83,9 @@ __global__ void reduceMax_persist(float *max, float *input, int nElements) {
   // Final comparison utilizing ATOMIC operations
   // We compare the "winner" of every block against the other
 
-  //***
+  if (threadIdx.x == 0) {   // only first thread does this final comparison
+    
+  }
 
 }
 
@@ -105,7 +107,7 @@ __global__ void reduceMax_atomic_persist(float *max, float *input, int nElements
 
 
 
-__global__ void generateRandArray(u_int numElements, float* h_input, float max) {
+inline void generateRandArray(u_int numElements, float* h_input, float* max) {
   // Initialize the host input vectors
   int a;
   int b;
@@ -115,6 +117,11 @@ __global__ void generateRandArray(u_int numElements, float* h_input, float max) 
     b = rand();
 
     h_input[i] = a * 100.0 + b;
+
+    if (h_input[i] > *max) {
+      *max = h_input[i];
+    }
+
   }
 }
 
@@ -124,7 +131,7 @@ __global__ void generateRandArray(u_int numElements, float* h_input, float max) 
 
 
 
-__global__ inline void checkProcessFailure() {
+__host__ __forceinline__ void checkProcessFailure() {
   cudaError_t err = cudaSuccess;            // Check return values for CUDA calls
 
   err = cudaGetLastError();
@@ -134,16 +141,17 @@ __global__ inline void checkProcessFailure() {
 
 
 
-__global__ inline void checkResultFailure(float max, float h_max) {
+__host__ __forceinline__ void checkResultFailure(float max, float h_max) {
   if ( max != h_max ) {
     fprintf(stderr, "Result verification failed!\n");
+    fprintf(stderr, "Max should be: %f\nBut is: %f\n", max, h_max);
     exit(EXIT_FAILURE);
   } else { printf("Max value: %.6f\n", h_max); }
 }
 
 
 
-__global__ inline void getDeviceMax(float* h_max, float* d_max) {
+__host__ __forceinline__ void getDeviceMax(float* h_max, float* d_max) {
   cudaError_t err = cudaSuccess;            // Check return values for CUDA calls
 
   err = cudaMemcpy(h_max, d_max, sizeof(u_int), cudaMemcpyDeviceToHost);
@@ -153,7 +161,7 @@ __global__ inline void getDeviceMax(float* h_max, float* d_max) {
 
 
 
-__global__ inline void copyHostToDeviceVector(float* d_input, float* h_input, size_t size) {
+__host__ __forceinline__ void copyHostToDeviceVector(float* d_input, float* h_input, size_t size) {
   cudaError_t err = cudaSuccess;            // Check return values for CUDA calls
 
   err = cudaMemcpy(d_input, h_input, size, cudaMemcpyHostToDevice);
@@ -166,12 +174,12 @@ __global__ inline void copyHostToDeviceVector(float* d_input, float* h_input, si
 //-------------------
 
 
-__global__ inline void getInput(int argc, char **argv, u_int* numElements, u_int* nR) {
+__host__ __forceinline__ void getInput(int argc, char **argv, u_int* numElements, u_int* nR) {
   if (argc >= 2) {
     *numElements = atoi(argv[1]);
   } else {
-    printf("AVISO: sem parametro de tamanho, default: 1.000.000\n\n");
-    *numElements = 1000000;
+    printf("AVISO: sem parametro de tamanho, default: 1.000\n\n");
+    *numElements = 1000;
   }
 
   if (argc >= 3) {
@@ -211,7 +219,7 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
 
   // Initialize the host input vectors
-  generateRandArray(numElements, h_input, max);
+  generateRandArray(numElements, h_input, &max);
 
   // Reinicia os chronos
   chrono_reset(&chrono_Normal);
@@ -231,7 +239,10 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
 
   // Copy the host input vectors A and B in host memory to the device input vectors in device memory
-  copyHostToDeviceVector(d_input, h_input, size);
+  //copyHostToDeviceVector(d_input, h_input, size);
+  err = cudaMemcpy(d_input, h_input, size, cudaMemcpyHostToDevice);
+  if ( CHECK(err != cudaSuccess, "Failed to copy vector A from host to device (error code %s)!\n", cudaGetErrorString(err)) )
+    exit(EXIT_FAILURE);
 
   // Initialize thrust variables
   thrust::device_ptr<float> thrust_d_ptr(d_input);
@@ -241,27 +252,27 @@ int main(int argc, char **argv) {
 
   // EXECUTE PERSIST ============================
 
-  printf("\n === EXECUTANDO KERNEL PERSIST ===\n");
-  
-  for (int i = 0; i < nR; ++i) {
-    chrono_start(&chrono_Normal);
-
-    reduceMax_persist<<<NP*THREADS, THREADS>>>(d_max, d_input, numElements);
-  
-    cudaDeviceSynchronize();
-    chrono_stop(&chrono_Normal);
-
-    copyHostToDeviceVector(d_input, h_input, size);   // reinicia o vetor que foi alterado
-  }
-
-  // check for error
-  checkProcessFailure();
-
-  // Copy device max to host max
-  getDeviceMax(&h_max, d_max);
-
-  // Verify that the result is correct
-  checkResultFailure(max, h_max);
+  //printf("\n === EXECUTANDO KERNEL PERSIST ===\n");
+  //
+  //for (int i = 0; i < nR; ++i) {
+  //  chrono_start(&chrono_Normal);
+  //
+  //  reduceMax_persist<<<NP*THREADS, THREADS>>>(d_max, d_input, numElements);
+  //
+  //  cudaDeviceSynchronize();
+  //  chrono_stop(&chrono_Normal);
+  //
+  //  copyHostToDeviceVector(d_input, h_input, size);   // reinicia o vetor que foi alterado
+  //}
+  //
+  //// check for error
+  //checkProcessFailure();
+  //
+  //// Copy device max to host max
+  //getDeviceMax(&h_max, d_max);
+  //
+  //// Verify that the result is correct
+  //checkResultFailure(max, h_max);
 
 
   // EXECUTE ATOMIC =============================
@@ -276,7 +287,7 @@ int main(int argc, char **argv) {
     cudaDeviceSynchronize();
     chrono_stop(&chrono_Atomic);
 
-    copyHostToDeviceVector(d_input, h_input, size);   // reinicia o vetor que será alterado
+    //copyHostToDeviceVector(d_input, h_input, size);   // reinicia o vetor que será alterado
   }
 
   // check for error
