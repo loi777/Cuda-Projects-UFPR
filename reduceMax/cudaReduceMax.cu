@@ -105,7 +105,7 @@ __global__ void reduceMax_atomic_persist(float *max, float *input, int nElements
 
 
 
-__host__ void generateRandArray(u_int numElements, float* h_input, float max) {
+__global__ void generateRandArray(u_int numElements, float* h_input, float max) {
   // Initialize the host input vectors
   int a;
   int b;
@@ -124,7 +124,7 @@ __host__ void generateRandArray(u_int numElements, float* h_input, float max) {
 
 
 
-__host__ inline void checkProcessFailure() {
+__global__ inline void checkProcessFailure() {
   cudaError_t err = cudaSuccess;            // Check return values for CUDA calls
 
   err = cudaGetLastError();
@@ -134,7 +134,7 @@ __host__ inline void checkProcessFailure() {
 
 
 
-__host__ inline void checkResultFailure(float max, float h_max) {
+__global__ inline void checkResultFailure(float max, float h_max) {
   if ( max != h_max ) {
     fprintf(stderr, "Result verification failed!\n");
     exit(EXIT_FAILURE);
@@ -143,7 +143,7 @@ __host__ inline void checkResultFailure(float max, float h_max) {
 
 
 
-__host__ inline void getDeviceMax(float* h_max, float* d_max) {
+__global__ inline void getDeviceMax(float* h_max, float* d_max) {
   cudaError_t err = cudaSuccess;            // Check return values for CUDA calls
 
   err = cudaMemcpy(h_max, d_max, sizeof(u_int), cudaMemcpyDeviceToHost);
@@ -153,7 +153,7 @@ __host__ inline void getDeviceMax(float* h_max, float* d_max) {
 
 
 
-__host__ inline void copyHostToDeviceVector(float* d_input, float* h_input, size_t size) {
+__global__ inline void copyHostToDeviceVector(float* d_input, float* h_input, size_t size) {
   cudaError_t err = cudaSuccess;            // Check return values for CUDA calls
 
   err = cudaMemcpy(d_input, h_input, size, cudaMemcpyHostToDevice);
@@ -166,7 +166,7 @@ __host__ inline void copyHostToDeviceVector(float* d_input, float* h_input, size
 //-------------------
 
 
-__host__ inline void getInput(int argc, char **argv, u_int* numElements, u_int* nR) {
+__global__ inline void getInput(int argc, char **argv, u_int* numElements, u_int* nR) {
   if (argc >= 2) {
     *numElements = atoi(argv[1]);
   } else {
