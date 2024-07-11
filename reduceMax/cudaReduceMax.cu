@@ -174,7 +174,7 @@ __host__ __forceinline__ void copyHostToDeviceVector(float* d_input, float* h_in
 //-------------------
 
 
-__host__ __forceinline__ void getInput(int argc, char **argv, u_int* numElements, u_int* nR) {
+inline void getInput(int argc, char **argv, u_int* numElements, u_int* nR) {
   if (argc >= 2) {
     *numElements = atoi(argv[1]);
   } else {
@@ -284,20 +284,33 @@ int main(int argc, char **argv) {
 
     reduceMax_persist<<<NP*THREADS, THREADS>>>(d_max, d_input, numElements);
 
-    cudaDeviceSynchronize();
+    //cudaDeviceSynchronize();
     chrono_stop(&chrono_Atomic);
 
     //copyHostToDeviceVector(d_input, h_input, size);   // reinicia o vetor que será alterado
   }
 
+  cudaDeviceSynchronize();  //remover dps
+
   // check for error
-  checkProcessFailure();
+  //checkProcessFailure();
+  err = cudaGetLastError();
+  if ( CHECK(err != cudaSuccess, "Failed to launch reduceMax_persist kernel (error code %s)!\n", cudaGetErrorString(err)) )
+    exit(EXIT_FAILURE);
 
   // Copy device max to host max
-  getDeviceMax(&h_max, d_max);
+  //getDeviceMax(&h_max, d_max);
+  err = cudaMemcpy(&h_max, d_max, sizeof(u_int), cudaMemcpyDeviceToHost);
+  if ( CHECK(err != cudaSuccess, "Failed to copy vector C from device to host (error code %s)!\n", cudaGetErrorString(err)) )
+    exit(EXIT_FAILURE);
 
   // Verify that the result is correct
-  checkResultFailure(max, h_max);
+  //checkResultFailure(max, h_max);
+  if ( max != h_max ) {
+    fprintf(stderr, "Result verification failed!\n");
+    fprintf(stderr, "Max should be: %f\nBut is: %f\n", max, h_max);
+    exit(EXIT_FAILURE);
+  } else { printf("Max value: %.6f\n", h_max); }
 
 
   // EXECUTE THRUST =============================
