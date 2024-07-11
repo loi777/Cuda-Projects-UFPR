@@ -287,7 +287,8 @@ int main(int argc, char **argv) {
   for (int i = 0; i < nR; ++i) {
     chrono_start( &chrono_Thrust );
 
-    h_max = *(thrust::max_element(thrust_d_input.begin(), thrust_d_input.end()));
+    //h_max = *(thrust::max_element(thrust_d_input.begin(), thrust_d_input.end()));
+    h_max = thrust::reduce(thrust_d_input.begin(), thrust_d_input.end(), -INFINITY, thrust::maximum<float>());
 
     cudaDeviceSynchronize();
     chrono_stop( &chrono_Thrust );
