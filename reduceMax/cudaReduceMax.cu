@@ -26,11 +26,7 @@ typedef unsigned int u_int;
 
 // funcao atomica para Max de float retirada diretamente da internet
 __device__ __forceinline__ float atomicMaxFloat (float * addr, float value) {
-    float old;
-    old = (value >= 0) ? __int_as_float(atomicMax((int *)addr, __float_as_int(value))) :
-         __uint_as_float(atomicMin((unsigned int *)addr, __float_as_uint(value)));
-
-    return old;
+    return __int_as_float(atomicMax((int *)addr, __float_as_int(value)));
 }
 
 
@@ -39,57 +35,27 @@ __device__ __forceinline__ float atomicMaxFloat (float * addr, float value) {
 
 
 __global__ void reduceMax_persist__(float *max, float *input, int nElements) {
-  #define BLOCKSIZE (blockDim.x * 2)                   // the size of the vector segment to reduce
-  u_int blockStartPosi = blockIdx.x * BLOCKSIZE;       // the starting index of current block
-  u_int blocksTotalSize = BLOCKSIZE * gridDim.x;       // the total size of all blocks
+  extern __shared__ float finalVector[];
 
-  u_int threadsActive;                              // how many threads the block is using
+    int gId = (blockDim.x * blockIdx.x) + threadIdx.x;
+    finalVector[threadIdx.x] = 0;                              // default value
 
-  u_int compareDiff;                             // used to know where to compare
-  u_int currentI;                                   // this saves a few calculations each loop
+    if (gId < nElements) {
+        finalVector[threadIdx.x] = input[gId];
+    }
+    __syncthreads();
 
-  // Initial loop where we scan MOST of the vector
-  // there will be 1 value to compare at the index where every block started
-
-  for (; blockStartPosi < nElements; blockStartPosi += blocksTotalSize) {
-    // OUTER LOOP, where we increment the position of every block
-
-    compareDiff = 1;
-    currentI = blocksTotalSize + (threadIdx.x * 2);
-
-    // INSIDE LOOP, where threads compare values inside block
-    for (threadsActive = THREADS; threadsActive > 0; threadsActive /= 2) {
-      if (threadsActive < threadIdx.x) {
-        continue;     // skip this thread, for it is inactive
-      }
-
-      if (currentI > nElements) {
-        continue;     // skip, because this thread is outside the current array
-      }
-
-      input[currentI] = MAX(input[currentI] , input[currentI + (compareDiff)]);
-
-      compareDiff *= 2;
-      currentI *= 2;
+    for (unsigned int s =blockDim.x/2; s>0; s>>=1) {
+        if (threadIdx.x < s && gId < nElements) {
+          finalVector[threadIdx.x] = MAX(finalVector[threadIdx.x], finalVector[threadIdx.x + s]);  // 2
+        }
+        __syncthreads();
     }
 
-    // Exiting the inside loop there will be missing 1 last process
-    // let thread 0 do this last comparison
-    if (threadIdx.x == 0) {
-      input[currentI] = MAX(input[currentI] , input[currentI + (compareDiff)]);
-    }
-  }
-
-  // Final comparison utilizing ATOMIC operations
-  // We compare the "winner" of every block against the other
-
-  if (threadIdx.x == 0) {   // only first thread does this final comparison
-    for (int i = BLOCKSIZE; i < nElements; i += BLOCKSIZE) {
-      input[0] = MAX(input[0], input[i]);     // compare the first index of every block to id 0
-    }
-
-    *max = input[0];        // after making index 0 the max value, transfer to max
-  }
+    // Final comparison utilizing ATOMIC operations
+    // We compare the "winner" of every block against the other
+  
+    *max = atomicMaxFloat(max, finalVector[threadIdx.x]);        // after making index 0 the max value, transfer to max
 
 }
 
@@ -110,7 +76,7 @@ __global__ void reduceMax_atomic_persist(float *max, float *input, int nElements
   #define NTA (gridDim.x * blockDim.x)
 
   for (i=INITIAL; i<nElements ;i+=NTA)
-    *max = MAX(input[i], *max);
+    *max = atomicMaxFloat(max, input[i]);
 }
 
 
