@@ -38,6 +38,60 @@ __device__ __forceinline__ float atomicMaxFloat (float * addr, float value) {
 //-----------------------------------------------------------
 
 
+__global__ void reduceMax_persist__(float *max, float *input, int nElements) {
+  #define BLOCKSIZE (blockDim.x * 2)                   // the size of the vector segment to reduce
+  u_int blockStartPosi = blockIdx.x * BLOCKSIZE;       // the starting index of current block
+  u_int blocksTotalSize = BLOCKSIZE * gridDim.x;       // the total size of all blocks
+
+  u_int threadsActive;                              // how many threads the block is using
+
+  u_int compareDiff;                             // used to know where to compare
+  u_int currentI;                                   // this saves a few calculations each loop
+
+  // Initial loop where we scan MOST of the vector
+  // there will be 1 value to compare at the index where every block started
+
+  for (; blockStartPosi < nElements; blockStartPosi += blocksTotalSize) {
+    // OUTER LOOP, where we increment the position of every block
+
+    compareDiff = 1;
+    currentI = blocksTotalSize + (threadIdx.x * 2);
+
+    // INSIDE LOOP, where threads compare values inside block
+    for (threadsActive = THREADS; threadsActive > 0; threadsActive /= 2) {
+      if (threadsActive < threadIdx.x) {
+        continue;     // skip this thread, for it is inactive
+      }
+
+      if (currentI > nElements) {
+        continue;     // skip, because this thread is outside the current array
+      }
+
+      input[currentI] = MAX(input[currentI] , input[currentI + (compareDiff)]);
+
+      compareDiff *= 2;
+      currentI *= 2;
+    }
+
+    // Exiting the inside loop there will be missing 1 last process
+    // let thread 0 do this last comparison
+    if (threadIdx.x == 0) {
+      input[currentI] = MAX(input[currentI] , input[currentI + (compareDiff)]);
+    }
+  }
+
+  // Final comparison utilizing ATOMIC operations
+  // We compare the "winner" of every block against the other
+
+  if (threadIdx.x == 0) {   // only first thread does this final comparison
+    for (int i = BLOCKSIZE; i < nElements; i += BLOCKSIZE) {
+      input[0] = MAX(input[0], input[i]);     // compare the first index of every block to id 0
+    }
+
+    *max = input[0];        // after making index 0 the max value, transfer to max
+  }
+
+}
 
 __global__ void reduceMax_persist(float *max, float *input, int nElements) {
   u_int i;
@@ -221,7 +275,7 @@ int main(int argc, char **argv) {
   for (int i = 0; i < nR; ++i) {
     chrono_start(&chrono_Normal);
 
-    reduceMax_persist<<<NP*THREADS, THREADS>>>(d_max, d_input, numElements);
+    reduceMax_persist<<<NP*BLOCKS, THREADS>>>(d_max, d_input, numElements);
 
     cudaDeviceSynchronize();
     chrono_stop(&chrono_Normal);
@@ -244,7 +298,7 @@ int main(int argc, char **argv) {
   for (int i = 0; i < nR; ++i) {
     chrono_start(&chrono_Atomic);
 
-    reduceMax_persist<<<NP*THREADS, THREADS>>>(d_max, d_input, numElements);
+    reduceMax_atomic_persist<<<NP*BLOCKS, THREADS>>>(d_max, d_input, numElements);
 
     cudaDeviceSynchronize();
     chrono_stop(&chrono_Atomic);
@@ -304,7 +358,7 @@ int main(int argc, char **argv) {
 
   printf("--Tempo em relacao ao Thrust\n");
   printf("Em segundos: %lf\n", reduce_time_seconds - thrust_time_seconds);
-  printf("Em porcento: %lf\n", (thrust_time_seconds/reduce_time_seconds)*100.0);
+  printf("Em porcento: %d\n", (int)((thrust_time_seconds/reduce_time_seconds)*100.0));
 
   //--
 
@@ -318,7 +372,7 @@ int main(int argc, char **argv) {
 
   printf("--Tempo em relacao ao Thrust\n");
   printf("Em segundos: %lf\n", atomic_time_seconds - thrust_time_seconds);
-  printf("Em porcento: %lf\n", (thrust_time_seconds/atomic_time_seconds)*100.0);
+  printf("Em porcento: %d\n", (int)((thrust_time_seconds/atomic_time_seconds)*100.0));
   
   
   // FINALIZA ===================================
