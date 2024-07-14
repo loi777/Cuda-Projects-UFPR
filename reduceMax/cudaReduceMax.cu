@@ -10,6 +10,10 @@
 #include "chrono.c"
 #include "log.c"
 
+#include "cuPrintf.cuh"
+#include "cuPrintf.cu"
+
+
 #define NP 28            // Number of processors
 #define BLOCKS 2         // Number of blocks per processor
 #define THREADS 1024     // Number of threads per block
@@ -34,36 +38,41 @@ __device__ __forceinline__ float atomicMaxFloat (float * addr, float value) {
 //-----------------------------------------------------------
 
 
-__global__ void reduceMax_persist(float *max, float *input, int nElements) {
-  int vectorSize = blockDim.x *2;                         // every block loop is going to MAX this size
-  int totalBlockSize = vectorSize * gridDim.x;            // how many blocks we have
+__global__ void reduceMax_persist(float *d_max, float *input, int nElements) {
 
-  int idx = (vectorSize * blockIdx.x) + (threadIdx.x * 2);  // separate the threads with a position vacant
+  int vectorSize = (blockDim.x * 2);                      // every block loop is going to MAX this range
+  int totalBlockSize = vectorSize * gridDim.x;            // the total range that all blocks use together
+
+  int idx = (vectorSize * blockIdx.x) + (threadIdx.x * 2);  // separate the threads with a position vacant between
 
   // Start processing blocks in the vector.
 
-  while (idx < nElements) {                   // stop condition
+  while (idx < nElements) {                                 // PERSISTENT BLOCK LOOP
 
-    for(int stride=1; stride <= vectorSize; stride *= 2) {
-        if (idx % 2*stride == 0) {            // initially all of them MAX the next index
-          if ((idx + stride) < nElements) {     // avoids access violation
-            input[idx] = MAX(input[idx], input[idx + stride]);
+    for(int stride=1; stride <= vectorSize; stride *= 2) {  // REDUCE LOOP
+        if (idx % (2*stride) == 0) {            // initially all of them MAX the next index
+          if ((idx + stride) < nElements) {
+            continue;                           // avoids access violation
           }
+
+          input[idx] = MAX(input[idx], input[idx + stride]);
         }
         
-        __syncthreads();
+        __syncthreads();                        // must sync after each reduce loop
     }
 
+    //-------------------------
+    // Save max of this block with atomic
+
+    if (threadIdx.x == 0) {
+      *d_max = atomicMaxFloat(d_max, input[idx]);
+    }
+
+    __syncthreads();
+
+    //-------------------------
+
     idx += totalBlockSize;      // go to the next unprocessed block
-  }
-
-  // Final comparison utilizing ATOMIC operations
-  // We compare the "winner" of every block against input[0]
-
-  int threadStride = vectorSize * blockDim.x;
-
-  for (int finalMax = threadIdx.x * vectorSize; finalMax < nElements; finalMax += threadStride) {
-    *max = atomicMaxFloat(max, input[finalMax]);
   }
 }
 
@@ -72,7 +81,7 @@ __global__ void reduceMax_persist(float *max, float *input, int nElements) {
 __global__ void reduceMax_persist_Atomic(float *max, float *input, int nElements) {
   int idx = blockDim.x * blockIdx.x + threadIdx.x;
 
-  if (idx < nElements){
+  if (idx < nElements) {
       for(int stride=1; stride < nElements; stride *= 2) {
           if (idx % (2*stride) == 0) {
               input[idx] = atomicMaxFloat(&input[idx], input[idx + stride]);
@@ -153,6 +162,16 @@ __host__ __forceinline__ void copyHostToDeviceVector(float* d_input, float* h_in
   cudaError_t err = cudaSuccess;            // Check return values for CUDA calls
 
   err = cudaMemcpy(d_input, h_input, size, cudaMemcpyHostToDevice);
+  if ( CHECK(err != cudaSuccess, "Failed to copy vector A from host to device (error code %s)!\n", cudaGetErrorString(err)) )
+    exit(EXIT_FAILURE);
+}
+
+
+
+__host__ __forceinline__ void resetDeviceMax(float* d_input, float* h_input) {
+  cudaError_t err = cudaSuccess;            // Check return values for CUDA calls
+
+  err = cudaMemcpy(d_input, h_input, 1, cudaMemcpyHostToDevice);
   if ( CHECK(err != cudaSuccess, "Failed to copy vector A from host to device (error code %s)!\n", cudaGetErrorString(err)) )
     exit(EXIT_FAILURE);
 }
@@ -250,6 +269,16 @@ int main(int argc, char **argv) {
   printf("\n === EXECUTANDO KERNEL PERSIST ===\n");
   
   for (int i = 0; i < nR; ++i) {
+
+    printf("Loop: %d \n\n", i);
+
+    //
+
+    h_max = 0;
+    resetDeviceMax(d_max, &h_max);
+
+    //-----
+
     chrono_start(&chrono_Normal);
 
     reduceMax_persist<<<NP*BLOCKS, THREADS>>>(d_max, d_input, numElements);
@@ -277,6 +306,11 @@ int main(int argc, char **argv) {
   //printf("\n === EXECUTANDO KERNEL ATOMIC ===\n");
   //
   //for (int i = 0; i < nR; ++i) {
+
+    //h_max = 0;
+    //resetDeviceMax(d_max, &h_max);
+
+    //-----
   //  chrono_start(&chrono_Atomic);
 //
   //  reduceMax_persist_Atomic<<<NP*BLOCKS, THREADS>>>(d_max, d_input, numElements);
