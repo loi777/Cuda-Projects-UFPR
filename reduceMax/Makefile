@@ -4,7 +4,7 @@ LDLIBS = -lm
 
 EXEC = cudaReduceMax
 
-all: $(EXEC)
+all: $(EXEC) clean
 
 $(EXEC): $(EXEC).cu
 	$(CC) $(CFLAGS) $(EXEC).cu -o $(EXEC) $(LDLIBS)
@@ -13,6 +13,6 @@ debug: CFLAGS += -lineinfo -I/usr/lib/nvidia-cuda-toolkit/compute-sanitizer -g
 debug: all
 
 clean:
-	-rm -f *.o
+	@rm -f *.o
 purge: clean
-	-rm -f $(EXEC)
+	@rm -f $(EXEC)

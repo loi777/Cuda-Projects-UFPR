@@ -46,7 +46,7 @@ __global__ void reduceMax_persist(float *max, float *input, int nElements) {
 
     for(int stride=1; stride <= vectorSize; stride *= 2) {
         if (idx % 2*stride == 0) {            // initially all of them MAX the next index
-          if (idx + stride < nElements) {     // avoids access violation
+          if ((idx + stride) < nElements) {     // avoids access violation
             input[idx] = MAX(input[idx], input[idx + stride]);
           }
         }
