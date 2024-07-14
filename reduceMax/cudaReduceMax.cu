@@ -35,21 +35,36 @@ __device__ __forceinline__ float atomicMaxFloat (float * addr, float value) {
 
 
 __global__ void reduceMax_persist(float *max, float *input, int nElements) {
-  int idx = blockDim.x * blockIdx.x + threadIdx.x;
+  int vectorSize = blockDim.x *2;                         // every block loop is going to MAX this size
+  int totalBlockSize = vectorSize * gridDim.x;            // how many blocks we have
 
-  if (idx < nElements){
-      for(int stride=1; stride < nElements; stride *= 2) {
-          if (idx % (2*stride) == 0) {
-              input[idx] = MAX(input[idx], input[idx + stride]);
+  int idx = (vectorSize * blockIdx.x) + (threadIdx.x * 2);  // separate the threads with a position vacant
+
+  // Start processing blocks in the vector.
+
+  while (idx < nElements) {                   // stop condition
+
+    for(int stride=1; stride <= vectorSize; stride *= 2) {
+        if (idx % 2*stride == 0) {            // initially all of them MAX the next index
+          if (idx + stride < nElements) {     // avoids access violation
+            input[idx] = MAX(input[idx], input[idx + stride]);
           }
-          __syncthreads();
-      }
+        }
+        
+        __syncthreads();
+    }
+
+    idx += totalBlockSize;      // go to the next unprocessed block
   }
 
-    // Final comparison utilizing ATOMIC operations
-    // We compare the "winner" of every block against the other
-  
-    *max = atomicMaxFloat(max, input[0]);        // after making index 0 the max value, transfer to max
+  // Final comparison utilizing ATOMIC operations
+  // We compare the "winner" of every block against input[0]
+
+  int threadStride = vectorSize * blockDim.x;
+
+  for (int finalMax = threadIdx.x * vectorSize; finalMax < nElements; finalMax += threadStride) {
+    *max = atomicMaxFloat(max, input[finalMax]);
+  }
 }
 
 
@@ -66,10 +81,10 @@ __global__ void reduceMax_persist_Atomic(float *max, float *input, int nElements
       }
   }
 
-    // Final comparison utilizing ATOMIC operations
-    // We compare the "winner" of every block against the other
+  // Final comparison utilizing ATOMIC operations
+  // We compare the "winner" of every block against the other
   
-    *max = atomicMaxFloat(max, input[0]);        // after making index 0 the max value, transfer to max
+  *max = atomicMaxFloat(max, input[0]);        // after making index 0 the max value, transfer to max
 }
 
 
@@ -92,6 +107,8 @@ inline void generateRandArray(u_int numElements, float* h_input, float* max) {
     if (h_input[i] > *max) {
       *max = h_input[i];
     }
+
+    printf("%f\n", h_input[i]);
 
   }
 }
@@ -117,7 +134,7 @@ __host__ __forceinline__ void checkResultFailure(float max, float h_max) {
     fprintf(stderr, "Result verification failed!\n");
     fprintf(stderr, "Max should be: %f\nBut is: %f\n", max, h_max);
     exit(EXIT_FAILURE);
-  } else { printf("Max found: %.6f\n", h_max); }
+  }
 }
 
 
@@ -194,6 +211,7 @@ int main(int argc, char **argv) {
     exit(EXIT_FAILURE);
 
   // Initialize the host input vectors
+  srand(time(NULL));                            // properly randomise the code
   generateRandArray(numElements, h_input, &max);
 
   // Restart chrono timers
@@ -239,41 +257,45 @@ int main(int argc, char **argv) {
     cudaDeviceSynchronize();
     chrono_stop(&chrono_Normal);
 
+    //-----
+
     copyHostToDeviceVector(d_input, h_input, numElements);
+
+    checkProcessFailure();
+
+    // Copy device max to host max
+    getDeviceMax(&h_max, d_max);
+
+    // Verify that the result is correct
+    checkResultFailure(max, h_max);
   }
-
-  checkProcessFailure();
-
-  // Copy device max to host max
-  getDeviceMax(&h_max, d_max);
-
-  // Verify that the result is correct
-  checkResultFailure(max, h_max);
 
 
   // EXECUTE ATOMIC =============================
 
 
-  printf("\n === EXECUTANDO KERNEL ATOMIC ===\n");
-  
-  for (int i = 0; i < nR; ++i) {
-    chrono_start(&chrono_Atomic);
-
-    reduceMax_persist_Atomic<<<NP*BLOCKS, THREADS>>>(d_max, d_input, numElements);
-
-    cudaDeviceSynchronize();
-    chrono_stop(&chrono_Atomic);
-
-    copyHostToDeviceVector(d_input, h_input, numElements);
-  }
-
-  checkProcessFailure();
-
-  // Copy device max to host max
-  getDeviceMax(&h_max, d_max);
-
-  // Verify that the result is correct
-  checkResultFailure(max, h_max);
+  //printf("\n === EXECUTANDO KERNEL ATOMIC ===\n");
+  //
+  //for (int i = 0; i < nR; ++i) {
+  //  chrono_start(&chrono_Atomic);
+//
+  //  reduceMax_persist_Atomic<<<NP*BLOCKS, THREADS>>>(d_max, d_input, numElements);
+//
+  //  cudaDeviceSynchronize();
+  //  chrono_stop(&chrono_Atomic);
+//
+  //  //-----
+//
+  //  copyHostToDeviceVector(d_input, h_input, numElements);
+//
+  //  checkProcessFailure();
+//
+  //  // Copy device max to host max
+  //  getDeviceMax(&h_max, d_max);
+//
+  //  // Verify that the result is correct
+  //  checkResultFailure(max, h_max);
+  //}
 
 
   // EXECUTE THRUST =============================
@@ -289,10 +311,12 @@ int main(int argc, char **argv) {
 
     cudaDeviceSynchronize();
     chrono_stop( &chrono_Thrust );
-  }
 
-  // Verify that the result is correct
-  checkResultFailure(max, h_max);
+    //-----
+
+    // Verify that the result is correct
+    checkResultFailure(max, h_max);
+  }
 
 
   // IMPRIME RESULTADOS ===================================
@@ -320,7 +344,7 @@ int main(int argc, char **argv) {
   printf( "Tempo em segundos: %lf s\n", reduce_time_seconds );
   printf( "Vazão: %lf INT/s\n", (numElements)/reduce_time_seconds );
 
-  printf("--Tempo em relacao ao Thrust\n");
+  printf("\n--Tempo em relacao ao Thrust\n");
   printf("Em segundos: %lf\n", reduce_time_seconds - thrust_time_seconds);
   printf("Em porcento: %d\n", (int)((thrust_time_seconds/reduce_time_seconds)*100.0));
 
@@ -334,7 +358,7 @@ int main(int argc, char **argv) {
   printf( "Tempo em segundos: %lf s\n", atomic_time_seconds );
   printf( "Vazão: %lf INT/s\n", (numElements)/atomic_time_seconds );
 
-  printf("--Tempo em relacao ao Thrust\n");
+  printf("\n--Tempo em relacao ao Thrust\n");
   printf("Em segundos: %lf\n", atomic_time_seconds - thrust_time_seconds);
   printf("Em porcento: %d\n", (int)((thrust_time_seconds/atomic_time_seconds)*100.0));
   
