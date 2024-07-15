@@ -1,3 +1,10 @@
+//////////
+// AUTORES
+// Luiz Fernando Giongo dos Santos
+// Muriki Gusmão Yamanaka
+//////////
+
+
 #include <thrust/device_ptr.h>
 #include <thrust/extrema.h>
 #include <thrust/host_vector.h>
