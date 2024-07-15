@@ -201,8 +201,8 @@ inline void getInput(int argc, char **argv, u_int* numElements, u_int* nR) {
   if (argc >= 2) {
     *numElements = atoi(argv[1]);
   } else {
-    printf("AVISO: sem parametro de tamanho, default: 1.000\n\n");
-    *numElements = 1000;
+    printf("AVISO: sem parametro de tamanho, default: 1.000.000\n\n");
+    *numElements = 1000000;
   }
 
   if (argc >= 3) {
