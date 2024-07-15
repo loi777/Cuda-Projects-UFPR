@@ -10,8 +10,6 @@
 #include "chrono.c"
 #include "log.c"
 
-#include "cuPrintf.cuh"
-#include "cuPrintf.cu"
 
 
 #define NP 28            // Number of processors
@@ -40,10 +38,10 @@ __device__ __forceinline__ float atomicMaxFloat (float * addr, float value) {
 
 __global__ void reduceMax_persist(float *d_max, float *input, int nElements) {
 
-  int vectorSize = (blockDim.x * 2);                      // every block loop is going to MAX this range
-  int totalBlockSize = vectorSize * gridDim.x;            // the total range that all blocks use together
+  u_int vectorSize = (blockDim.x * 2);                      // every block loop is going to MAX this range
+  u_int totalBlockSize = vectorSize * gridDim.x;            // the total range that all blocks use together
 
-  int idx = (vectorSize * blockIdx.x) + (threadIdx.x * 2);  // separate the threads with a position vacant between
+  u_int idx = (vectorSize * blockIdx.x) + (threadIdx.x * 2);  // separate the threads with a position vacant between
 
   // Start processing blocks in the vector.
 
@@ -51,7 +49,7 @@ __global__ void reduceMax_persist(float *d_max, float *input, int nElements) {
 
     for(int stride=1; stride <= vectorSize; stride *= 2) {  // REDUCE LOOP
         if (idx % (2*stride) == 0) {            // initially all of them MAX the next index
-          if ((idx + stride) < nElements) {
+          if ((idx + stride) >= nElements) {
             continue;                           // avoids access violation
           }
 
@@ -65,7 +63,7 @@ __global__ void reduceMax_persist(float *d_max, float *input, int nElements) {
     // Save max of this block with atomic
 
     if (threadIdx.x == 0) {
-      *d_max = atomicMaxFloat(d_max, input[idx]);
+      atomicMaxFloat(d_max, input[idx]);
     }
 
     __syncthreads();
@@ -78,22 +76,42 @@ __global__ void reduceMax_persist(float *d_max, float *input, int nElements) {
 
 
 
-__global__ void reduceMax_persist_Atomic(float *max, float *input, int nElements) {
-  int idx = blockDim.x * blockIdx.x + threadIdx.x;
+__global__ void reduceMax_persist_Atomic(float *d_max, float *input, int nElements) {
 
-  if (idx < nElements) {
-      for(int stride=1; stride < nElements; stride *= 2) {
-          if (idx % (2*stride) == 0) {
-              input[idx] = atomicMaxFloat(&input[idx], input[idx + stride]);
+  u_int vectorSize = (blockDim.x * 2);                      // every block loop is going to MAX this range
+  u_int totalBlockSize = vectorSize * gridDim.x;            // the total range that all blocks use together
+
+  u_int idx = (vectorSize * blockIdx.x) + (threadIdx.x * 2);  // separate the threads with a position vacant between
+
+  // Start processing blocks in the vector.
+
+  while (idx < nElements) {                                 // PERSISTENT BLOCK LOOP
+
+    for(int stride=1; stride <= vectorSize; stride *= 2) {  // REDUCE LOOP
+        if (idx % (2*stride) == 0) {            // initially all of them MAX the next index
+          if ((idx + stride) >= nElements) {
+            continue;                           // avoids access violation
           }
-          __syncthreads();
-      }
-  }
 
-  // Final comparison utilizing ATOMIC operations
-  // We compare the "winner" of every block against the other
-  
-  *max = atomicMaxFloat(max, input[0]);        // after making index 0 the max value, transfer to max
+          atomicMaxFloat(&input[idx], input[idx + stride]);
+        }
+        
+        __syncthreads();                        // must sync after each reduce loop
+    }
+
+    //-------------------------
+    // Save max of this block with atomic
+
+    if (threadIdx.x == 0) {
+      atomicMaxFloat(d_max, input[idx]);
+    }
+
+    __syncthreads();
+
+    //-------------------------
+
+    idx += totalBlockSize;      // go to the next unprocessed block
+  }
 }
 
 
@@ -116,9 +134,6 @@ inline void generateRandArray(u_int numElements, float* h_input, float* max) {
     if (h_input[i] > *max) {
       *max = h_input[i];
     }
-
-    printf("%f\n", h_input[i]);
-
   }
 }
 
@@ -270,10 +285,6 @@ int main(int argc, char **argv) {
   
   for (int i = 0; i < nR; ++i) {
 
-    printf("Loop: %d \n\n", i);
-
-    //
-
     h_max = 0;
     resetDeviceMax(d_max, &h_max);
 
@@ -303,33 +314,34 @@ int main(int argc, char **argv) {
   // EXECUTE ATOMIC =============================
 
 
-  //printf("\n === EXECUTANDO KERNEL ATOMIC ===\n");
-  //
-  //for (int i = 0; i < nR; ++i) {
+  printf("\n === EXECUTANDO KERNEL ATOMIC ===\n");
+  
+  for (int i = 0; i < nR; ++i) {
 
-    //h_max = 0;
-    //resetDeviceMax(d_max, &h_max);
+    h_max = 0;
+    resetDeviceMax(d_max, &h_max);
 
     //-----
-  //  chrono_start(&chrono_Atomic);
-//
-  //  reduceMax_persist_Atomic<<<NP*BLOCKS, THREADS>>>(d_max, d_input, numElements);
-//
-  //  cudaDeviceSynchronize();
-  //  chrono_stop(&chrono_Atomic);
-//
-  //  //-----
-//
-  //  copyHostToDeviceVector(d_input, h_input, numElements);
-//
-  //  checkProcessFailure();
-//
-  //  // Copy device max to host max
-  //  getDeviceMax(&h_max, d_max);
-//
-  //  // Verify that the result is correct
-  //  checkResultFailure(max, h_max);
-  //}
+
+    chrono_start(&chrono_Atomic);
+
+    reduceMax_persist_Atomic<<<NP*BLOCKS, THREADS>>>(d_max, d_input, numElements);
+
+    cudaDeviceSynchronize();
+    chrono_stop(&chrono_Atomic);
+
+    //-----
+
+    copyHostToDeviceVector(d_input, h_input, numElements);
+
+    checkProcessFailure();
+
+    // Copy device max to host max
+    getDeviceMax(&h_max, d_max);
+
+    // Verify that the result is correct
+    checkResultFailure(max, h_max);
+  }
 
 
   // EXECUTE THRUST =============================

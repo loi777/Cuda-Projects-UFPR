@@ -1,8 +1,10 @@
 CC = nvcc
-CFLAGS = -I/usr/include/c++/10 -I/usr/lib/cuda/include/ --std=c++11
-LDLIBS = -lm
+CFLAGS = -arch=sm_61 -I/usr/include/c++/10 -I/usr/lib/cuda/include/ --std=c++11
+LDLIBS = 
 
 EXEC = cudaReduceMax
+
+
 
 all: $(EXEC) clean
 
