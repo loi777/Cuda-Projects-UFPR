@@ -1,0 +1,72 @@
+ci1009: informacoes extra sobre a Especificacao do trabalho 2
+(favor ver tambem a versao 1.3 da especificacao em PDF)
+-------------------------------------------------------
+
+OBS: essa eh uma versao prelimninar desse documento.
+     Basicamente o ítem c) é uma sugestão e 
+     poderá passar por uma revisão 
+     caso exista algum metodo mais simples. 
+
+Este lab consiste em fazer o BlurKernel (dos slides, por exemplo) em uma versao
+com shared memory.
+
+1) Copiar o diretorio do trabalho 2 para outro trab2-imageBlurSHM seu
+2) trocar o nome do arquivo ImageBlur.cu para ImageBlurSHM.cu
+3) trocar o nome do seu blurKernel para indicar que este eh com shared memory
+   exemplo: trocar de blurKernel para blurKernelSHM
+
+problemas:
+// vou inserir aqui dicas de problemas que podem aparecer
+// na solucao adequada para esse kernel
+
+// possiveis modificacoes aqui em breve ....
+a) definir duas constantes no inicio do seu programa para indicar
+   o numero de threads por bloco, assim:
+   #define NTHx   16  // numero de thrreads em x, no bloco
+   #define NTHy   16  // numero de thrreads em y, no bloco
+
+b) assim voce pode declarar o tamanho da shared memory
+
+   __shared__ unsigned char window[ (NTHx+2*BLURSIZE) * (NTHy+2*BLURSIZE) * 3 ];  // assume 3 canais
+
+   ou 3D (tentativa)
+   __shared__ unsigned char window[NTHx+2*BLURSIZE][NTHy+2*BLURSIZE][3];  // assume 3 canais
+
+   ou 3 matrizes (vantagem ou nao?)
+   __shared__ unsigned char windowR[NTHx+2*BLURSIZE][NTHy+2*BLURSIZE];  // assume 3 canais
+   __shared__ unsigned char windowG[NTHx+2*BLURSIZE][NTHy+2*BLURSIZE];  // assume 3 canais
+   __shared__ unsigned char windowB[NTHx+2*BLURSIZE][NTHy+2*BLURSIZE];  // assume 3 canais
+   
+
+
+
+c) Como determinar as bordas "internas" da janelinha em shared memory ?
+
+   Eu pensaria em definir 4 variaveis: (dica possivel!)
+   xSmin   // significa coordenada inicial em shared memory borda esquerda (eixo x, claro!)
+   xSmax  // significa coordenada final em shared memory borda direita (eixo x, claro!)
+   ySmin   // significa coordenada inicial em shared memory borda superior (eixo y, claro!)
+   xSmax  // significa coordenada final em shared memory borda direita (eixo y, claro!)
+
+   assim, se voce fez a carga da primeira janelinha em shared memory, o codigo pode fazer
+   xSmin = ySmin = BLURSIZE;
+   xSmax = BLURSIZE + NTHx;
+   ySmax = BLURSIZE + NTHy;
+
+   nesse caso voce pode usar as variaveis acima para decidir se os pixels estao na borda da imagem
+   
+   a medida que vai mudando a janelinha de lugar (apos cada carga da janelinha)
+   atualizar as variaveis    xSmin, ySmin, xSmax, ySmax
+
+   assim, por exemplo, para uma janelinha copiada da imagem original, que fica com todos os
+   pixels totalmente dentro da imagem, inclusive inclusive os pixels da envoltoria em shared memory
+   podemos fazer:
+   xSmin = ySmin = 0;
+   xSmax = BLURSIZE + NTHx + BLURSIZE;
+   ySmax = BLURSIZE + NTHy + BLURSIZE;
+
+   isso vai indicar que voce pode processar todos os pixels da parte central
+   da ja janelinha na shared memory, sem se preocupar com "clipping" (i.e. recorte) da imagem
+ 
+
+
