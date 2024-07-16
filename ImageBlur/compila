@@ -1,0 +1,1 @@
+nvcc ImageBlur.cu -o ImageBlur
