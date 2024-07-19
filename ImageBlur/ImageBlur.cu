@@ -2,10 +2,12 @@
 
 #include <stdio.h>
 
-//#include <wb.h>
-#include "wb4.h" // use our lib instead (under construction)
+#include "wb4.h"  // use our lib instead (under construction)
+
+
 
 typedef unsigned int u_int;
+typedef unsigned char u_char;
 
 #define wbCheck(stmt)                                                     \
   do {                                                                    \
@@ -17,28 +19,42 @@ typedef unsigned int u_int;
     }                                                                     \
   } while (0)
 
-#define BLUR_SIZE 5
+#define CHECK(A, M, ...) \
+  check((A), __FILE__, __LINE__, __func__, (M), ##__VA_ARGS__)
 
-//@@ INSERT CODE HERE
-//@@ INSERIR AQUI o codigo do seu kernel CUDA
+#define BLURSIZE 5
+
+#define BLCK 4      // Block qtd
+#define NTHx 16     // threads em x
+#define NTHy 16     // threads em y
+
+//========================================================
 
 
-__global__ void rgb2uintKernelSHM(unsigned int *argb, unsigned int *rgb, int width, int height){
+
+//
+__global__ void rgb2uintKernelSHM(u_int *argb, u_char *rgb, int width, int height){
+
+
+}
+
+
+__global__ void blurKernelSHM( u_int *argb_out, u_int *argb_in, int width, int height){
+
+}
+
+
+__global__ void uint2rgbKernelSHM(u_int *argb, u_char *rgb, int width, int height){
 
 
 }
 
 
-__global__ void blurKernelSHM( unsigned int *argb_out, unsigned int *argb_in, int width, int height){
+
+//------------------------------------
 
 
-}
-
-
-__global__ void uint2rgbKernelSHM(unsigned int *argb, unsigned int *rgb, int width, int height){
-
-
-}
+//========================================================
 
 
 
@@ -49,75 +65,81 @@ int main(int argc, char *argv[]) {
   char *inputImageFile;
   wbImage_t inputImage;
   wbImage_t outputImage;
-  unsigned char *hostInputImageData;
-  unsigned char *hostOutputImageData;
-  unsigned char *deviceInputImageData;
-  unsigned char *deviceOutputImageData;
 
-  args = wbArg_read(argc, argv); /* parse the input arguments */
+  u_char *h_input_3ch;  // host memory
+  u_char *h_output_3ch; //
 
+  u_char *d_mem_3ch;    // device input memory
+  u_int *d_input_int;   // device input int memory
+  u_int *d_output_int;  // device output memory
+
+  //--------
+
+  // USER INPUT PARAMETERS
+  args = wbArg_read(argc, argv);
   inputImageFile = wbArg_getInputFile(args, 1);
   printf( "imagem de entrada: %s\n", inputImageFile );
 
-  //  inputImage = wbImportImage(inputImageFile);
+  //  INPUT IMAGE
   inputImage = wbImport(inputImageFile);
-
   imageWidth  = wbImage_getWidth(inputImage);
   imageHeight = wbImage_getHeight(inputImage);
+  h_input_3ch = wbImage_getData(inputImage);   // save unsigned char value of every pixel
 
-  // NOW: input and output images are RGB (3 channel)
+  // OUTPUT IMAGE
   outputImage = wbImage_new(imageWidth, imageHeight, 3);
+  h_output_3ch = wbImage_getData(outputImage); // save unsigned char value of every pixel
 
-  hostInputImageData  = wbImage_getData(inputImage);
-  hostOutputImageData = wbImage_getData(outputImage);
+  wbTime_start(Generic, "Doing GPU Computation (memory + compute)");
 
-  wbTime_start(GPU, "Doing GPU Computation (memory + compute)");
+  //---------------------------------------------------------------------------------------
 
   wbTime_start(GPU, "Doing GPU memory allocation");
-  cudaMalloc((void **)&deviceInputImageData, imageWidth * imageHeight * sizeof(unsigned char) * 3);
-  cudaMalloc((void **)&deviceOutputImageData, imageWidth * imageHeight * sizeof(unsigned char) * 3);
+  cudaMalloc((void **)d_mem_3ch, imageWidth * imageHeight * sizeof(u_char) * 3);
+  cudaMalloc((void **)d_input_int, imageWidth * imageHeight * sizeof(u_int) * 3);
+  cudaMalloc((void **)d_output_int, imageWidth * imageHeight * sizeof(u_int) * 3);
   wbTime_stop(GPU, "Doing GPU memory allocation");
 
-  wbTime_start(Copy, "Copying data to the GPU");
-  cudaMemcpy(deviceInputImageData, hostInputImageData, imageWidth * imageHeight * sizeof(unsigned char) * 3, cudaMemcpyHostToDevice);
+  wbTime_start(Copy, "Copying 3channel data to the GPU");
+  cudaMemcpy(d_mem_3ch, h_input_3ch, imageWidth * imageHeight * sizeof(u_char) * 3, cudaMemcpyHostToDevice);
+  wbTime_stop(Copy, "Copying 3channel data to the GPU");
 
-  wbTime_stop(Copy, "Copying data to the GPU");
 
   ///////////////////////////////////////////////////////
   wbTime_start(Compute, "Doing the computation on the GPU");
+  ///////////////////////////////////////////////////////
 
-  //@@ INSERT CODE HERE
-  //@@ INSERIR AQUI SEU codigo para ativar SEU kernel CUDA
+  printf("Transforming Device 3channel into u_int\n");
+  rgb2uintKernelSHM(d_input_int, d_mem_3ch, imageWidth, imageHeight);
 
+  printf("Applying Blur effect in Device u_int memory\n");
+  blurKernelSHM(d_input_int, d_output_int, imageWidth, imageHeight);
 
+  printf("Transforming Device u_int into 3channel\n");
+  uint2rgbKernelSHM(d_output_int, d_mem_3ch, imageWidth, imageHeight);
 
-  rgb2uintKernelSHM<<<GRID1, NT1>>>(unsigned int *argb, unsigned int *rgb, int width, int height);
-
-
-  blurKernelSHM<<<yourGrid, yourBlocks>>>( unsigned int *argb_out, unsigned int *argb_in, int width, int height);
-
-
-  uint2rgbKernelSHM<<<GRID1, NT1>>>(unsigned int *argb, unsigned int *rgb, int width, int height);
-
-
-
-  wbTime_stop(Compute, "Doing the computation on the GPU");
 
   ///////////////////////////////////////////////////////
-  wbTime_start(Copy, "Copying data from the GPU");
-  cudaMemcpy(hostOutputImageData, deviceOutputImageData, imageWidth * imageHeight * sizeof(unsigned char) * 3, cudaMemcpyDeviceToHost);
+  wbTime_stop(Compute, "Doing the computation on the GPU");
+  ///////////////////////////////////////////////////////
 
-  wbTime_stop(Copy, "Copying data from the GPU");
 
-  wbTime_stop(GPU, "Doing GPU Computation (memory + compute)");
+  wbTime_start(Copy, "Copying 3channel data from the GPU");
+  cudaMemcpy(h_output_3ch, d_mem_3ch, imageWidth * imageHeight * sizeof(u_char) * 3, cudaMemcpyDeviceToHost);
+  wbTime_stop(Copy, "Copying 3channel data from the GPU");
+
+  //---------------------------------------------------------------------------------------
+
+  wbTime_stop(Generic, "Doing GPU Computation (memory + compute)");
 
   wbSolution(args, outputImage);
   // DEBUG: if you want to see your image, 
   //   will generate file bellow in current directory
-  wbExport( "blurred.ppm", outputImage );
+  //wbExport( "blurred.ppm", outputImage );
 
-  cudaFree(deviceInputImageData);
-  cudaFree(deviceOutputImageData);
+  cudaFree(d_mem_3ch);
+  cudaFree(d_input_int);
+  cudaFree(d_output_int);
 
   wbImage_delete(outputImage);
   wbImage_delete(inputImage);
