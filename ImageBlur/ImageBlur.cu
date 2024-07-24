@@ -19,8 +19,6 @@ typedef unsigned char u_char;
     }                                                                     \
   } while (0)
 
-#define CHECK(A, M, ...) \
-  check((A), __FILE__, __LINE__, __func__, (M), ##__VA_ARGS__)
 
 #define BLURSIZE 5
 
@@ -28,15 +26,60 @@ typedef unsigned char u_char;
 #define NTHx 16     // threads em x
 #define NTHy 16     // threads em y
 
+#define WINDOWX ((NTHx + (BLURSIZE*2))*3)   // horizontal size of our working window for blur
+#define WINDOWY (NTHy + (BLURSIZE*2))   // vertical size of our working window for blur
+
 //========================================================
 
 
 
-__device__ __forceinline__ void checkInsideLine(u_int* blockPosiX, u_int* blockPosiY, int width) {
-  while (*blockPosiX > width) {
-    *blockPosiX -= width;
-    *blockPosiY += NTHy;
+// keeps block indexes inside the image, if it overflows horizontally
+// send it down one block line and reset horizontal position.
+__device__ __forceinline__ void checkInsideLine(u_int* blockPosiX, u_int* blockPosiY, int width, int height) {
+  while (*blockPosiX >= width && *blockPosiY <= height) {
+    // only do this if outside horizontal image size
+    // and inside vertical image size
+
+    *blockPosiX = blockIdx.x * NTHx;    // reset horizontal position
+    *blockPosiY += NTHy;                // next vertical position
   }
+}
+
+
+
+__device__ __forceinline__ u_int pixelToArray(int x, int y, int width) {
+  return ((x*3) + (y*width*3));
+}
+
+
+
+//------------------------------------
+
+
+
+// translate the unified array into a 2d array for our blurry window
+__device__ __forceinline__ void getWorkWindow(u_int s_imageWindow[WINDOWY][WINDOWX], u_int* argb_in, u_int blockPosiX, u_int blockPosiY, int width, int height) {
+
+  // although many times slower, only thread 0.0 collects the shared memory, for simplicity sake
+  for (int j = 0; j < WINDOWY; j++) {
+    for (int i = 0; i < WINDOWX/3; i++) {
+      int X = blockPosiX + i - BLURSIZE;
+      int Y = blockPosiY + j - BLURSIZE;
+
+      if (X > 0 && X < width) {
+        if (Y > 0 && Y < height) {
+          u_int pixelPosi = pixelToArray(X, Y, width);
+
+          s_imageWindow[j][i] = argb_in[pixelPosi];
+          s_imageWindow[j][i+1] = argb_in[pixelPosi+1];
+          s_imageWindow[j][i+2] = argb_in[pixelPosi+2];
+        }
+      }
+    }
+  }
+
+  // finaly sync threads to continue
+  __syncthreads();
 }
 
 
@@ -50,13 +93,22 @@ __global__ void rgb2uintKernelSHM(u_int *argb, u_char *rgb, int width, int heigh
   u_int blockPosiY = 0;                              // block origin in vertical
 
   u_int blockPosiX = blockIdx.x * NTHx;              // block origin in horizontal
-  checkInsideLine(&blockPosiX,&blockPosiY,width);
+  checkInsideLine(&blockPosiX,&blockPosiY,width,height);
 
 
   while (blockPosiY < height) {  // while the block is inside the image
-    u_int pixelPosition = ((blockPosiX + threadIdx.x)*3) + ((blockPosiY + threadIdx.y)*width*3);
-    if (pixelPosition > height * (width*3)) {          // if pixel is valid
+
+    if (blockPosiX + threadIdx.x < width && blockPosiY + threadIdx.y < height) {
+      // if pixel is inside image
+
+      u_int pixelPosition = pixelToArray(blockPosiX + threadIdx.x, blockPosiY + threadIdx.y, width);
+
       argb[pixelPosition] = (u_int)rgb[pixelPosition];
+      argb[pixelPosition+1] = (u_int)rgb[pixelPosition+1];
+      argb[pixelPosition+2] = (u_int)rgb[pixelPosition+2];
+
+      //if (threadIdx.x == 0 && threadIdx.y == 0) printf("Copied to index: %d  |%d|%d|%d\n", pixelPosition, 
+      //                                                  argb[pixelPosition], argb[pixelPosition+1], argb[pixelPosition+2]);
     }
 
     //
@@ -65,46 +117,11 @@ __global__ void rgb2uintKernelSHM(u_int *argb, u_char *rgb, int width, int heigh
 
     //
 
-    blockPosiX += NTHx * gridDim.x;
-    checkInsideLine(&blockPosiX,&blockPosiY,width);
+    blockPosiX += NTHx * gridDim.x;         // move block by amount of blocks
+    checkInsideLine(&blockPosiX,&blockPosiY,width,height);
   }
 }
 
-
-// Apply blur effect in the device memory
-// Blur logic is the simplest, a simple average of all pixels inside the
-// BLURSIZE Block
-__global__ void blurKernelSHM( u_int *argb_out, u_int *argb_in, int width, int height) {
-  // The shared memory will be a window containing 1 pixel for 1 thread, 16x16 by default
-  // plus an area of the size of BLURSIZE around this window, to allow for the correct blur.
-  // remember that 1 pixel is actually 3 indexes in this array
-  //__shared__ float s_imageWindow[blockDim.x * (BLURSIZE*2) * blockDim.y * (BLURSIZE*2) * 3];
-
-  //---
-
-  u_int blockPosiY = 0;                              // block origin in vertical
-
-  u_int blockPosiX = blockIdx.x * NTHx;              // block origin in horizontal
-  checkInsideLine(&blockPosiX,&blockPosiY,width);
-
-  //--
-
-  while (blockPosiY < height) {  // while the block is inside the image
-    u_int pixelPosition = ((blockPosiX + threadIdx.x)*3) + ((blockPosiY + threadIdx.y)*width*3);
-    if (pixelPosition > height * (width*3)) {          // if pixel is valid
-      argb_out[pixelPosition] = argb_in[pixelPosition];
-    }
-
-    //
-
-    __syncthreads();
-
-    //
-
-    blockPosiX += NTHx * gridDim.x;
-    checkInsideLine(&blockPosiX,&blockPosiY,width);
-  }
-}
 
 
 // transform the device memory from u_int to u_char
@@ -112,13 +129,22 @@ __global__ void uint2rgbKernelSHM(u_int *argb, u_char *rgb, int width, int heigh
   u_int blockPosiY = 0;                              // block origin in vertical
 
   u_int blockPosiX = blockIdx.x * NTHx;              // block origin in horizontal
-  checkInsideLine(&blockPosiX,&blockPosiY,width);
+  checkInsideLine(&blockPosiX,&blockPosiY,width,height);
 
 
   while (blockPosiY < height) {  // while the block is inside the image
-    u_int pixelPosition = ((blockPosiX + threadIdx.x)*3) + ((blockPosiY + threadIdx.y)*width*3);
-    if (pixelPosition > height * (width*3)) {          // if pixel is valid
+
+    if (blockPosiX + threadIdx.x < width && blockPosiY + threadIdx.y < height) {
+      // if pixel is inside image
+
+      u_int pixelPosition = pixelToArray(blockPosiX + threadIdx.x, blockPosiY + threadIdx.y, width);
+
       rgb[pixelPosition] = (u_char)argb[pixelPosition];
+      rgb[pixelPosition+1] = (u_char)argb[pixelPosition+1];
+      rgb[pixelPosition+2] = (u_char)argb[pixelPosition+2];
+
+      //if (threadIdx.x == 0 && threadIdx.y == 0) printf("Copied to index: %d  |%d|%d|%d\n", pixelPosition, 
+      //                                                  argb[pixelPosition], argb[pixelPosition+1], argb[pixelPosition+2]);
     }
 
     //
@@ -127,14 +153,62 @@ __global__ void uint2rgbKernelSHM(u_int *argb, u_char *rgb, int width, int heigh
 
     //
 
-    blockPosiX += NTHx * gridDim.x;
-    checkInsideLine(&blockPosiX,&blockPosiY,width);
+    blockPosiX += NTHx * gridDim.x;         // move block by amount of blocks
+    checkInsideLine(&blockPosiX,&blockPosiY,width,height);
   }
 }
 
 
 
-//========================================================
+//===========================================================================================
+
+
+
+// Apply blur effect in the device memory
+// Blur logic is the simplest, a simple average of all pixels inside the
+// BLURSIZE Block
+__global__ void blurKernelSHM(u_int *argb_out, u_int *argb_in, int width, int height) {
+  // The shared memory will be a window containing 1 pixel for 1 thread, 16x16 by default
+  // plus an area of the size of BLURSIZE around this window, to allow for the correct blur.
+  // remember that 1 pixel is actually 3 indexes in this array
+  __shared__ u_int s_imageWindow[WINDOWY][WINDOWX]; // s_image[y][x]
+  
+  //--
+  
+  u_int blockPosiY = 0;                              // block origin in vertical
+
+  u_int blockPosiX = blockIdx.x * NTHx;              // block origin in horizontal
+  checkInsideLine(&blockPosiX,&blockPosiY,width,height);
+
+  //--
+
+  getWorkWindow(s_imageWindow, argb_in, blockPosiX, blockPosiY, width, height);
+
+  //--
+
+  while (blockPosiY < height) {  // while the block is inside the image
+
+    if (blockPosiX + threadIdx.x < width && blockPosiY + threadIdx.y < height) {
+      // if pixel is inside image
+
+      // codigo de blur para 3 pixeis seguidos
+    }
+
+    //
+
+    blockPosiX += NTHx * gridDim.x;         // move block by amount of blocks
+    checkInsideLine(&blockPosiX,&blockPosiY,width,height);
+
+    //
+
+    __syncthreads();
+    getWorkWindow(s_imageWindow, argb_in, blockPosiX, blockPosiY, width, height);
+  }
+}
+
+
+
+//===========================================================================================
 
 
 
@@ -173,7 +247,7 @@ int main(int argc, char *argv[]) {
   h_output_3ch = wbImage_getData(outputImage); // save unsigned char value of every pixel
 
   // GET GENERAL VARIABLES
-  u_int imageArraySize = (imageWidth*3) * imageHeight; //Substitute: (imageWidth*3) * imageHeight
+  u_int imageArraySize = (imageWidth*3) * imageHeight; //Expands to: (imageWidth*3) * imageHeight
 
   wbTime_start(Generic, "Doing GPU Computation (memory + compute)");
 
@@ -199,19 +273,13 @@ int main(int argc, char *argv[]) {
   rgb2uintKernelSHM<<<BLCK, blockDimnension>>>(d_input_int, d_mem_3ch, imageWidth, imageHeight);
   cudaDeviceSynchronize();
 
-  cudaMemcpy(h_output_3ch, d_input_int, imageArraySize * sizeof(u_char), cudaMemcpyDeviceToHost);
-  for (int i = 0; i < 23; i++) {
-    printf("intPixel[%d] = %d %d %d   charPixel[%d] = %d %d %d\n", i, h_output_3ch[i], h_output_3ch[i+1], h_output_3ch[i+2],
-                                                                   i, h_input_3ch[i], h_input_3ch[i+1], h_input_3ch[i+2]);
-  }
+  printf("Applying Blur effect in Device u_int memory\n");
+  blurKernelSHM<<<BLCK, blockDimnension>>>(d_output_int, d_input_int, imageWidth, imageHeight);
+  cudaDeviceSynchronize();
 
-  //printf("Applying Blur effect in Device u_int memory\n");
-  //blurKernelSHM<<<BLCK, blockDimnension>>>(d_input_int, d_output_int, imageWidth, imageHeight);
-  //cudaDeviceSynchronize();
-
-  //printf("Transforming Device u_int into 3channel\n");
-  //uint2rgbKernelSHM<<<BLCK, blockDimnension>>>(d_output_int, d_mem_3ch, imageWidth, imageHeight);
-  //cudaDeviceSynchronize();
+  printf("Transforming Device u_int into 3channel\n");
+  uint2rgbKernelSHM<<<BLCK, blockDimnension>>>(d_output_int, d_mem_3ch, imageWidth, imageHeight);
+  cudaDeviceSynchronize();
 
 
   ///////////////////////////////////////////////////////
