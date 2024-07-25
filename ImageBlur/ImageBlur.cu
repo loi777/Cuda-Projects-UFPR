@@ -158,7 +158,6 @@ __global__ void rgb2uintKernelSHM(u_int *argb, u_char *rgb, int width, int heigh
 }
 
 
-
 // transform the device memory from u_int to u_char
 __global__ void uint2rgbKernelSHM(u_int *argb, u_char *rgb, int width, int height) {
   u_int blockPosiY = 0;                              // block origin in vertical
@@ -305,15 +304,15 @@ int main(int argc, char *argv[]) {
   ///////////////////////////////////////////////////////
 
   
-  printf("Transforming Device 3channel into u_int\n");
+  printf("DEVICE:  3channel => u_int\n");
   rgb2uintKernelSHM<<<BLCK, blockDimnension>>>(d_input_int, d_mem_3ch, imageWidth, imageHeight);
   cudaDeviceSynchronize();
 
-  printf("Applying Blur effect in Device u_int memory\n");
+  printf("DEVICE:  Blur u_int memory\n");
   blurKernelSHM<<<BLCK, blockDimnension>>>(d_output_int, d_input_int, imageWidth, imageHeight);
   cudaDeviceSynchronize();
 
-  printf("Transforming Device u_int into 3channel\n");
+  printf("DEVICE:  u_int => 3channel\n");
   uint2rgbKernelSHM<<<BLCK, blockDimnension>>>(d_output_int, d_mem_3ch, imageWidth, imageHeight);
   cudaDeviceSynchronize();
 
