@@ -83,14 +83,14 @@ __device__ __forceinline__ void getWorkWindow(u_int s_imageWindow[WINDOWY][WINDO
 
     for (int j = 0; j < WINDOWY; j++) {
       for (int i = 0; i < WINDOWX; i += 3) {
-        int X = blockPosiX - BLURSIZE + i;  // position in real array
+        int X = ((blockPosiX - BLURSIZE)*3) + i;  // position in real array
         int Y = blockPosiY - BLURSIZE + j;  // position in real array
 
         s_imageWindow[j][i] = 0;    // reset shared mem value to avoid memory trash
         s_imageWindow[j][i+1] = 0;
         s_imageWindow[j][i+2] = 0;
 
-        if (X > 0 && X < width) {
+        if (X > 0 && X < (width*3)) {
           if (Y > 0 && Y < height) {    // do not collect to shared mem if outside Image
             u_int pixelPosi = X + (Y*width*3);
 
@@ -105,6 +105,7 @@ __device__ __forceinline__ void getWorkWindow(u_int s_imageWindow[WINDOWY][WINDO
 
   // finaly sync threads to continue
   __syncthreads();
+  printDebuggWindow(s_imageWindow);
 }
 
 
