@@ -48,7 +48,6 @@ __device__ __forceinline__ void checkInsideLine(u_int* blockPosiX, u_int* blockP
 }
 
 
-
 __device__ __forceinline__ u_int pixelToArray(int x, int y, int width) {
   return ((x*3) + (y*width*3));
 }
@@ -57,21 +56,6 @@ __device__ __forceinline__ u_int pixelToArray(int x, int y, int width) {
 
 //------------------------------------
 
-
-
-// A DEBUGG function allowing us to see into the window
-__device__ __forceinline__ void printDebuggWindow(u_int s_imageWindow[WINDOWY][WINDOWX]) {
-  if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
-    for (int j = 0; j < WINDOWY; j++) {
-      for (int i = 0; i < WINDOWX; i+=3) {
-        printf("%d|", s_imageWindow[j][i]);
-      }
-      printf("\n");
-    }
-  }
-
-  __syncthreads();
-}
 
 
 // translate the unified array into a 2d array for our blurry window
@@ -90,8 +74,8 @@ __device__ __forceinline__ void getWorkWindow(u_int s_imageWindow[WINDOWY][WINDO
         s_imageWindow[j][i+1] = 0;
         s_imageWindow[j][i+2] = 0;
 
-        if (X > 0 && X < (width*3)) {
-          if (Y > 0 && Y < height) {    // do not collect to shared mem if outside Image
+        if (X >= 0 && X < (width*3)) {
+          if (Y >= 0 && Y < height) {    // do not collect to shared mem if outside Image
             u_int pixelPosi = X + (Y*width*3);
 
             s_imageWindow[j][i] = argb_in[pixelPosi];
@@ -105,7 +89,6 @@ __device__ __forceinline__ void getWorkWindow(u_int s_imageWindow[WINDOWY][WINDO
 
   // finaly sync threads to continue
   __syncthreads();
-  printDebuggWindow(s_imageWindow);
 }
 
 
@@ -132,10 +115,6 @@ __device__ __forceinline__ void blurPixel(u_int* argb_out, u_int s_imageWindow[W
   argb_out[pixelPosition] /= pixelsAdded;
   argb_out[pixelPosition+1] /= pixelsAdded;
   argb_out[pixelPosition+2] /= pixelsAdded;
-
-  if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
-    printf("Blurred pixel[%d] result: |%d|%d|%d|\n", pixelPosition, argb_out[pixelPosition], argb_out[pixelPosition+1], argb_out[pixelPosition+2]);
-  }
 }
 
 
