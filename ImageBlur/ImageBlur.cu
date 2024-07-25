@@ -29,6 +29,8 @@ typedef unsigned char u_char;
 #define WINDOWX ((NTHx + (BLURSIZE*2))*3)   // horizontal size of our working window for blur
 #define WINDOWY (NTHy + (BLURSIZE*2))   // vertical size of our working window for blur
 
+
+
 //========================================================
 
 
@@ -57,22 +59,45 @@ __device__ __forceinline__ u_int pixelToArray(int x, int y, int width) {
 
 
 
+// A DEBUGG function allowing us to see into the window
+__device__ __forceinline__ void printDebuggWindow(u_int s_imageWindow[WINDOWY][WINDOWX]) {
+  if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+    for (int j = 0; j < WINDOWY; j++) {
+      for (int i = 0; i < WINDOWX; i+=3) {
+        printf("%d|", s_imageWindow[j][i]);
+      }
+      printf("\n");
+    }
+  }
+
+  __syncthreads();
+}
+
+
 // translate the unified array into a 2d array for our blurry window
+// SyncThreads at the end of function
 __device__ __forceinline__ void getWorkWindow(u_int s_imageWindow[WINDOWY][WINDOWX], u_int* argb_in, u_int blockPosiX, u_int blockPosiY, int width, int height) {
 
   // although many times slower, only thread 0.0 collects the shared memory, for simplicity sake
-  for (int j = 0; j < WINDOWY; j++) {
-    for (int i = 0; i < WINDOWX/3; i++) {
-      int X = blockPosiX + i - BLURSIZE;
-      int Y = blockPosiY + j - BLURSIZE;
+  if (threadIdx.x == 0 && threadIdx.y == 0) {
 
-      if (X > 0 && X < width) {
-        if (Y > 0 && Y < height) {
-          u_int pixelPosi = pixelToArray(X, Y, width);
+    for (int j = 0; j < WINDOWY; j++) {
+      for (int i = 0; i < WINDOWX; i += 3) {
+        int X = blockPosiX - BLURSIZE + i;  // position in real array
+        int Y = blockPosiY - BLURSIZE + j;  // position in real array
 
-          s_imageWindow[j][i] = argb_in[pixelPosi];
-          s_imageWindow[j][i+1] = argb_in[pixelPosi+1];
-          s_imageWindow[j][i+2] = argb_in[pixelPosi+2];
+        s_imageWindow[j][i] = 0;    // reset shared mem value to avoid memory trash
+        s_imageWindow[j][i+1] = 0;
+        s_imageWindow[j][i+2] = 0;
+
+        if (X > 0 && X < width) {
+          if (Y > 0 && Y < height) {    // do not collect to shared mem if outside Image
+            u_int pixelPosi = X + (Y*width*3);
+
+            s_imageWindow[j][i] = argb_in[pixelPosi];
+            s_imageWindow[j][i+1] = argb_in[pixelPosi+1];
+            s_imageWindow[j][i+2] = argb_in[pixelPosi+2];
+          }
         }
       }
     }
@@ -80,6 +105,36 @@ __device__ __forceinline__ void getWorkWindow(u_int s_imageWindow[WINDOWY][WINDO
 
   // finaly sync threads to continue
   __syncthreads();
+}
+
+
+__device__ __forceinline__ void blurPixel(u_int* argb_out, u_int s_imageWindow[WINDOWY][WINDOWX], u_int pixelPosition) {
+  int pixelsAdded = 0;                    // counter to know how many pixels were added
+
+  int originX = (threadIdx.x + BLURSIZE)*3;   // position in shared window 
+  int originY = threadIdx.y + BLURSIZE;   // position in shared window
+
+  for (int j = -BLURSIZE; j < (BLURSIZE+1); j++) {
+    for (int i = -BLURSIZE*3; i < ((BLURSIZE*3)+3); i += 3) {
+
+      argb_out[pixelPosition] += s_imageWindow[originY + j][originX + i];
+      argb_out[pixelPosition+1] += s_imageWindow[originY + j][originX + i+1];
+      argb_out[pixelPosition+2] += s_imageWindow[originY + j][originX + i+2];
+
+      if ((s_imageWindow[originY+j][originX+i] + s_imageWindow[originY+j][originX+i+1] + s_imageWindow[originY+j][originX+i+2]) > 0) {
+        // if there was a pixel added this loop, we count for the average
+        pixelsAdded++;
+      }
+    }
+  }
+  
+  argb_out[pixelPosition] /= pixelsAdded;
+  argb_out[pixelPosition+1] /= pixelsAdded;
+  argb_out[pixelPosition+2] /= pixelsAdded;
+
+  if (threadIdx.x == 0 && threadIdx.y == 0 && blockIdx.x == 0) {
+    printf("Blurred pixel[%d] result: |%d|%d|%d|\n", pixelPosition, argb_out[pixelPosition], argb_out[pixelPosition+1], argb_out[pixelPosition+2]);
+  }
 }
 
 
@@ -189,9 +244,10 @@ __global__ void blurKernelSHM(u_int *argb_out, u_int *argb_in, int width, int he
   while (blockPosiY < height) {  // while the block is inside the image
 
     if (blockPosiX + threadIdx.x < width && blockPosiY + threadIdx.y < height) {
-      // if pixel is inside image
+      // if central pixel is inside image
 
-      // codigo de blur para 3 pixeis seguidos
+      u_int pixelPosition = pixelToArray(blockPosiX + threadIdx.x, blockPosiY + threadIdx.y, width);  // central pixel
+      blurPixel(argb_out, s_imageWindow, pixelPosition);
     }
 
     //
