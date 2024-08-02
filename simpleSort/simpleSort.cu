@@ -1,7 +1,9 @@
 #include <iostream>
+#include <sys/types.h>
 #include <vector>
 #include <cstdlib>
 #include <ctime>
+#include <algorithm>
 #include <cuda.h>
 #include <cuda_runtime.h>
 #include <thrust/sort.h>
@@ -16,40 +18,40 @@ __global__ void blocksHistoAndScan(unsigned int *HH, unsigned int *PS, int h, un
   unsigned int *sharedHisto = sharedMemory;
   unsigned int *sharedScan = sharedMemory + h;
 
-  int tid = threadIdx.x + blockIdx.x * blockDim.x;
-  int stride = blockDim.x * gridDim.x;
-
-  for (int i = threadIdx.x; i < h; i += blockDim.x) {
-    sharedHisto[i] = 0;
-  }
-  __syncthreads();
-
-  for (int i = tid; i < nElements; i += stride) {
-    int bin = (Input[i] - nMin) * h / (nMax - nMin + 1);
-    atomicAdd(&sharedHisto[bin], 1);
-  }
-  __syncthreads();
-
-  if (threadIdx.x == 0) {
-    for (int i = 0; i < h; ++i) {
-      HH[blockIdx.x * h + i] = sharedHisto[i];
-    }
-  }
-  __syncthreads();
-
-  if (threadIdx.x == 0) {
-    sharedScan[0] = 0;
-    for (int i = 1; i < h; ++i) {
-      sharedScan[i] = sharedScan[i - 1] + sharedHisto[i - 1];
-    }
-  }
-  __syncthreads();
-
-  if (threadIdx.x == 0) {
-    for (int i = 0; i < h; ++i) {
-      PS[blockIdx.x * h + i] = sharedScan[i];
-    }
-  }
+//  int tid = threadIdx.x + blockIdx.x * blockDim.x;
+//  int stride = blockDim.x * gridDim.x;
+//
+//  for (int i = threadIdx.x; i < h; i += blockDim.x) {
+//    sharedHisto[i] = 0;
+//  }
+//  __syncthreads();
+//
+//  for (int i = tid; i < nElements; i += stride) {
+//    int bin = (Input[i] - nMin) * h / (nMax - nMin + 1);
+//    atomicAdd(&sharedHisto[bin], 1);
+//  }
+//  __syncthreads();
+//
+//  if (threadIdx.x == 0) {
+//    for (int i = 0; i < h; ++i) {
+//      HH[blockIdx.x * h + i] = sharedHisto[i];
+//    }
+//  }
+//  __syncthreads();
+//
+//  if (threadIdx.x == 0) {
+//    sharedScan[0] = 0;
+//    for (int i = 1; i < h; ++i) {
+//      sharedScan[i] = sharedScan[i - 1] + sharedHisto[i - 1];
+//    }
+//  }
+//  __syncthreads();
+//
+//  if (threadIdx.x == 0) {
+//    for (int i = 0; i < h; ++i) {
+//      PS[blockIdx.x * h + i] = sharedScan[i];
+//    }
+//  }
 }
 
 
@@ -58,40 +60,40 @@ __global__ void globalHistoAndScan(unsigned int *HH, unsigned int *H, unsigned i
   unsigned int *sharedHisto = sharedMemory;
   unsigned int *sharedScan = sharedMemory + h;
 
-  int tid = threadIdx.x + blockIdx.x * blockDim.x;
-  int stride = blockDim.x * gridDim.x;
-
-  for (int i = threadIdx.x; i < h; i += blockDim.x) {
-    sharedHisto[i] = 0;
-  }
-  __syncthreads();
-
-  for (int i = tid; i < nElements; i += stride) {
-    int bin = (Input[i] - nMin) * h / (nMax - nMin + 1);
-    atomicAdd(&sharedHisto[bin], 1);
-  }
-  __syncthreads();
-
-  if (threadIdx.x == 0) {
-    for (int i = 0; i < h; ++i) {
-      atomicAdd(&H[i], sharedHisto[i]);
-    }
-  }
-  __syncthreads();
-
-  if (threadIdx.x == 0) {
-    sharedScan[0] = 0;
-    for (int i = 1; i < h; ++i) {
-      sharedScan[i] = sharedScan[i - 1] + sharedHisto[i - 1];
-    }
-  }
-  __syncthreads();
-
-  if (threadIdx.x == 0) {
-    for (int i = 0; i < h; ++i) {
-      atomicAdd(&P[i], sharedScan[i]);
-    }
-  }
+//  int tid = threadIdx.x + blockIdx.x * blockDim.x;
+//  int stride = blockDim.x * gridDim.x;
+//
+//  for (int i = threadIdx.x; i < h; i += blockDim.x) {
+//    sharedHisto[i] = 0;
+//  }
+//  __syncthreads();
+//
+//  for (int i = tid; i < nElements; i += stride) {
+//    int bin = (Input[i] - nMin) * h / (nMax - nMin + 1);
+//    atomicAdd(&sharedHisto[bin], 1);
+//  }
+//  __syncthreads();
+//
+//  if (threadIdx.x == 0) {
+//    for (int i = 0; i < h; ++i) {
+//      atomicAdd(&H[i], sharedHisto[i]);
+//    }
+//  }
+//  __syncthreads();
+//
+//  if (threadIdx.x == 0) {
+//    sharedScan[0] = 0;
+//    for (int i = 1; i < h; ++i) {
+//      sharedScan[i] = sharedScan[i - 1] + sharedHisto[i - 1];
+//    }
+//  }
+//  __syncthreads();
+//
+//  if (threadIdx.x == 0) {
+//    for (int i = 0; i < h; ++i) {
+//      atomicAdd(&P[i], sharedScan[i]);
+//    }
+//  }
 }
 
 
@@ -100,19 +102,19 @@ __global__ void Partition_kernel(unsigned int *HH, unsigned int *H, unsigned int
   unsigned int *sharedHisto = sharedMemory;
   unsigned int *sharedScan = sharedMemory + h;
 
-  int tid = threadIdx.x + blockIdx.x * blockDim.x;
-  int stride = blockDim.x * gridDim.x;
-
-  for (int i = threadIdx.x; i < h; i += blockDim.x) {
-    sharedHisto[i] = 0;
-  }
-  __syncthreads();
-
-  for (int i = tid; i < nElements; i += stride) {
-    int bin = (Input[i] - nMin) * h / (nMax - nMin + 1);
-    int pos = P[bin] + atomicAdd(&sharedHisto[bin], 1);
-    Output[pos] = Input[i];
-  }
+//  int tid = threadIdx.x + blockIdx.x * blockDim.x;
+//  int stride = blockDim.x * gridDim.x;
+//
+//  for (int i = threadIdx.x; i < h; i += blockDim.x) {
+//    sharedHisto[i] = 0;
+//  }
+//  __syncthreads();
+//
+//  for (int i = tid; i < nElements; i += stride) {
+//    int bin = (Input[i] - nMin) * h / (nMax - nMin + 1);
+//    int pos = P[bin] + atomicAdd(&sharedHisto[bin], 1);
+//    Output[pos] = Input[i];
+//  }
 }
 
 
@@ -133,7 +135,7 @@ void verifySort(unsigned int *Input, unsigned int *Output, int nElements) {
 int main(int argc, char* argv[]) {
   if (argc != 4) {
     std::cerr << "Usage: ./simpleSort <nTotalElements> <h> <nR>" << std::endl;
-    return 1;
+    return EXIT_FAILURE;
   }
 
   std::srand(std::time(nullptr));
@@ -158,15 +160,22 @@ int main(int argc, char* argv[]) {
 
   // Alocacores da GPU
   unsigned int *d_Input, *d_Output, *HH, *PS, *H, *P;
-  cudaMalloc((void**)&d_Input, nTotalElements * sizeof(unsigned int));
+  cudaMalloc((void**)&d_Input,  nTotalElements * sizeof(unsigned int));
   cudaMalloc((void**)&d_Output, nTotalElements * sizeof(unsigned int));
-  cudaMalloc((void**)&HH, 2 * h * sizeof(unsigned int)); // assuming NP=1 for nb=NP*2
-  cudaMalloc((void**)&PS, 2 * h * sizeof(unsigned int));
-  cudaMalloc((void**)&H, h * sizeof(unsigned int));
-  cudaMalloc((void**)&P, h * sizeof(unsigned int));
+  cudaMalloc((void**)&HH,       2 * h * sizeof(unsigned int)); // assuming NP=1 for nb=NP*2
+  cudaMalloc((void**)&PS,       2 * h * sizeof(unsigned int));
+  cudaMalloc((void**)&H,        h * sizeof(unsigned int));
+  cudaMalloc((void**)&P,        h * sizeof(unsigned int));
 
   // Copia para memoria global
   cudaMemcpy(d_Input, Input, nTotalElements * sizeof(unsigned int), cudaMemcpyHostToDevice);
+
+  //std::cout << "Vetor: ";
+  //for (size_t i=0; i<nTotalElements ;i++)
+  //  std::cout << Input[i] << " ";
+  //std::cout << std::endl;
+  //std::cout << "nMin: " << nMin << std::endl;
+  //std::cout << "nMax: " << nMax << std::endl;
 
   //for (int i = 0; i < nR; ++i) {
 
@@ -175,6 +184,12 @@ int main(int argc, char* argv[]) {
     //Partition_kernel<<<NP*BLOCKS, THREADS>>>(HH, H, PS, P, h, d_Output, d_Input, nTotalElements, nMin, nMax);
 
   //}
+
+  std::cout << "HH ";
+  for (size_t i=0; i<nTotalElements ;i++)
+    std::cout << Input[i] << " ";
+  std::cout << std::endl;
+
 
   cudaMemcpy(Output, d_Output, nTotalElements * sizeof(unsigned int), cudaMemcpyDeviceToHost);
   verifySort(Input, Output, nTotalElements);
@@ -189,6 +204,6 @@ int main(int argc, char* argv[]) {
   delete[] Input;
   delete[] Output;
 
-  return 0;
+  return EXIT_SUCCESS;
 }
 
