@@ -23,12 +23,13 @@ __global__ void blocksHistoAndScan(unsigned int *HH, unsigned int *PS, int h, un
 
   // Vetor de histograma
   for (int i = threadIdx.x; i < h; i += blockDim.x) {
-    sharedHisto[i] = 0;
+    sharedHisto[i] = 1;
   } __syncthreads();
-  for (int i = tid; i < nElements; i += stride) {
-    int bin = (Input[i] - nMin) / (((nMax - nMin)/h) + 1);
-    atomicAdd(&sharedHisto[bin], 1);
-  } __syncthreads();
+
+  //for (int i = tid; i < nElements; i += stride) {
+  //  int bin = (Input[i] - nMin) / (((nMax - nMin)/h) + 1);
+  //  atomicAdd(&sharedHisto[bin], 1);
+  //} __syncthreads();
 
   // Adiciona vetor a matrix de histogramas
   if (threadIdx.x == 0) {
