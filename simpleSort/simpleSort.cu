@@ -9,6 +9,8 @@
 #include <thrust/sort.h>
 #include <thrust/device_vector.h>
 
+typedef unsigned int u_int;
+
 #define NP 28            // Number of processors
 #define BLOCKS 2         // Number of blocks per processor
 #define THREADS 1024     // Number of threads per block
@@ -129,6 +131,31 @@ void verifySort(unsigned int *Input, unsigned int *Output, int nElements) {
 }
 
 
+//---------------------------------------------------------------------------------
+
+
+
+// Create and generate a random array of nElements
+// returns as a pointer
+u_int* genRandomArray(int nElem) {
+  u_int* array = new u_int[nElem];
+
+  for (int i = 0; i < nElem; ++i) {
+    int a = std::rand() % 50;
+    int b = std::rand();
+    u_int v = a * 100 + b;
+    array[i] = v;
+  }
+
+  return array;
+}
+
+
+
+//---------------------------------------------------------------------------------
+
+
+
 int main(int argc, char* argv[]) {
   if (argc != 4) {
     std::cerr << "Usage: ./simpleSort <nTotalElements> <h> <nR>" << std::endl;
@@ -142,33 +169,25 @@ int main(int argc, char* argv[]) {
   int h = 6;
   int nR = std::stoi(argv[3]);                                // Numero de chamadas do kernel
   //unsigned int *Input = new unsigned int[nTotalElements];     // Vetor de entrada
-  unsigned int Input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
-  unsigned int *Output = new unsigned int[nTotalElements];    // Vetor ordenado
-  unsigned int *stage = new unsigned int[nTotalElements];     // Vetor de debug da memoria da gpu
-
-  //// Preenche vetor
-  //for (int i = 0; i < nTotalElements; ++i) {
-  //  int a = std::rand() % 50;
-  //  int b = std::rand();
-  //  unsigned int v = a * 100 + b;
-  //  Input[i] = v;
-  //}
+  u_int Input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
+  u_int *Output = new u_int[nTotalElements];    // Vetor ordenado
+  u_int *stage = new u_int[nTotalElements];     // Vetor de debug da memoria da gpu
 
   // Busca menor valor e maior valor com thrust
-  unsigned int nMin = *std::min_element(Input, Input + nTotalElements);
-  unsigned int nMax = *std::max_element(Input, Input + nTotalElements);
+  u_int nMin = *std::min_element(Input, Input + nTotalElements);
+  u_int nMax = *std::max_element(Input, Input + nTotalElements);
 
   // Alocacores da GPU
   unsigned int *d_Input, *d_Output, *HH, *PS, *H, *P;
-  cudaMalloc((void**)&d_Input,  nTotalElements * sizeof(unsigned int));
-  cudaMalloc((void**)&d_Output, nTotalElements * sizeof(unsigned int));
-  cudaMalloc((void**)&HH,       nTotalElements * sizeof(unsigned int)); // assuming NP=1 for nb=NP*2
-  cudaMalloc((void**)&PS,       nTotalElements * sizeof(unsigned int));
-  cudaMalloc((void**)&H,        h * sizeof(unsigned int));
-  cudaMalloc((void**)&P,        h * sizeof(unsigned int));
+  cudaMalloc((void**)&d_Input,  nTotalElements * sizeof(u_int));
+  cudaMalloc((void**)&d_Output, nTotalElements * sizeof(u_int));
+  cudaMalloc((void**)&HH,       nTotalElements * sizeof(u_int)); // assuming NP=1 for nb=NP*2
+  cudaMalloc((void**)&PS,       nTotalElements * sizeof(u_int));
+  cudaMalloc((void**)&H,        h * sizeof(u_int));
+  cudaMalloc((void**)&P,        h * sizeof(u_int));
 
   // Copia para memoria global
-  cudaMemcpy(d_Input, Input, nTotalElements * sizeof(unsigned int), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_Input, Input, nTotalElements * sizeof(u_int), cudaMemcpyHostToDevice);
 
   std::cout << "Vetor: ";
   for (size_t i=0; i<nTotalElements ;i++)
@@ -178,19 +197,20 @@ int main(int argc, char* argv[]) {
   std::cout << "nMax: " << nMax << std::endl;
 
   //for (int i = 0; i < nR; ++i) {
+    // TODO: TIME STAMP
     blocksHistoAndScan<<<NP*BLOCKS, THREADS>>>(HH, PS, h, d_Input, nTotalElements, nMin, nMax);
     //globalHistoAndScan<<<NP*BLOCKS, THREADS>>>(HH, H, PS, P, h, d_Input, nTotalElements, nMin, nMax);
     //Partition_kernel<<<NP*BLOCKS, THREADS>>>(HH, H, PS, P, h, d_Output, d_Input, nTotalElements, nMin, nMax);
   //}
 
-  cudaMemcpy(stage, HH, nTotalElements * sizeof(unsigned int), cudaMemcpyDeviceToHost);
+  cudaMemcpy(stage, HH, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
 
   std::cout << "HH: ";
   for (size_t i=0; i<nTotalElements ;i++)
     std::cout << stage[i] << " ";
   std::cout << std::endl;
 
-  //cudaMemcpy(Output, d_Output, nTotalElements * sizeof(unsigned int), cudaMemcpyDeviceToHost);
+  //cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
   //verifySort(Input, Output, nTotalElements);
 
   cudaFree(d_Input);

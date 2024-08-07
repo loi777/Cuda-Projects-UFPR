@@ -2,71 +2,196 @@
 #include <cuda.h>
 #include <limits>
 
-#define N 18              // Size of the input array
-#define HISTOGRAM_BINS 6  // Number of bins in each histogram
-#define NUM_HISTOGRAMS 3  // Number of histograms (rows in the output matrix)
+typedef unsigned int u_int;
 
-// The input array
-const int h_input[N] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
+#define BLOCKS 4                            // one block for one histogram
+#define THREADS 5                           // n of threads
+
+#define ARRAYSIZE 20                        // Size of the input array
+#define HIST_SEGMENTATIONS 6                // Number of bins in each histogram
+
+#define SEG_SIZE (ceil(ARRAYSIZE/HIST_SEGMENTATIONS))   // Every block will solve this size, minimun of 1
+
+#define HISTOGRAM (BLOCKS*HIST_SEGMENTATIONS)           // the full histogram, block:y | segmentation:x
+
+// The input array  // only for testing
+//const int h_input[ARRAYSIZE] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
+
+
+
+//---------------------------------------------------------------
+
+
+
+// Create and generate a random array of nElements
+// returns as a pointer
+u_int* genRandomArray(int nElem) {
+  u_int* array = new u_int[nElem];
+
+  for (int i = 0; i < nElem; ++i) {
+    int a = std::rand() % 50;
+    int b = std::rand();
+    u_int v = a * 100 + b;
+    array[i] = v;
+  }
+
+  return array;
+}
+
+
+// returns the min value of an Array
+u_int getMin(u_int* Array, int nElem) {
+  u_int min = UINT_MAX;
+
+  for (int i = 0; i < nElem; ++i) {
+    if (Array[i] < min) {
+        min = Array[i];
+    }
+  }
+
+  return min;
+}
+
+
+// returns the max value of an Array
+u_int getMax(u_int* Array, int nElem) {
+  u_int max = 0;    // minimun value of an unsigned variable is 0
+
+  for (int i = 0; i < nElem; ++i) {
+    if (Array[i] > max) {
+        max = Array[i];
+    }
+  }
+
+  return max;
+}
+
+
+
+//---------------------------------------------------------------
+
+
+
+// Debugg function to print an array
+void printArray(u_int* a, int size) {
+    // Print the generated array, do not allow this with arrays of billions
+    for (int i = 0; i < size; i++) {
+        std::cout << a[i] << " ";
+    }
+    std::cout << std::endl;
+}
+
+
+// Debugg function to print an array
+void printSegmentations(int min, int max, u_int* a, int size, int segCount) {
+    int binWidth = ((max - min) / segCount) + 1;
+
+    //--
+
+    std::cout << "min: " << min << " | max: " << max << std::endl;
+    for (int i = 0; i < segCount; i++) {
+        std::cout << "Seg|Bin [" << i << "]: " << ((binWidth*i)+min) << " to " << ((binWidth*(i+1))-1+min) << "\n";
+    }
+    std::cout << std::endl;
+}
+
+
+
+//---------------------------------------------------------------
+
+
 
 // Kernel para calcular histogramas em particoes
 // Cada bloco eh responsavel por um histograma (linha da matriz)
-__global__ void calculateHistogram(const int *input, int *histograms, int numElements, int numHistograms, int histogramBins, int minVal, int maxVal){
-    // Alloca shared memory para UM histograma, tamanho terceiro parametro de chamada
+__global__ void calculateHistogram(const int *input, int *histograms, int arraySize, int segSize, int segCount, int minVal, int maxVal) {
+    // Alloca shared memory para UM histograma
     extern __shared__ int sharedHist[];
+    if (threadIdx.x < segCount) sharedHist[threadIdx.x] = 0;
+
+    __syncthreads();  // threads will wait for the shared memory to be finished
+
+    //---
+
     // Inicio da particao no vetor
-    int startIdx = blockIdx.x * histogramBins;
+    int blcStart = blockIdx.x * segSize;    // bloco positionado na frente daquele que veio anterior a ele
+    int thrPosi = threadIdx.x;             // 1 elemento por thread
 
-    // Verifica overflow dos blocos e das threads
-    if ((blockIdx.x > numHistograms) || ((startIdx + threadIdx.x) > numElements)) { return; }
-    else {
-        // Inicia shared memory
-        if (threadIdx.x < histogramBins) { sharedHist[threadIdx.x] = 0; }
-        __syncthreads();  // Wait for all threads to initialize shared memory
+    // Calcula intervalo de cada bin, o conjunto de numeros dele
+    int binWidth = ((maxVal - minVal) / segCount) + 1;
 
-        // Calcula intervalo de cada bin
-        unsigned int binWidth = ((maxVal - minVal) / histogramBins) + 1;
+    while(thrPosi < segSize && ((blcStart+thrPosi) < arraySize)) {
+        // Loop enquanto a thread estiver resolvendo elementos validos dentro do bloco e do array
 
-        int value = input[startIdx + threadIdx.x];
-        atomicAdd(&sharedHist[(value - minVal) / binWidth], 1);  // Incrementa bin do histograma na shared memory
-        __syncthreads();
+        int val = input[blcStart + thrPosi];    // get value
+        atomicAdd(&sharedHist[(val - minVal) / binWidth], 1);  // add to its corresponding segment
 
-        // Passa os resultados da shared memory para matriz
-        if (threadIdx.x < histogramBins)
-            atomicAdd(&histograms[blockIdx.x * histogramBins + threadIdx.x], sharedHist[threadIdx.x]);
+        thrPosi += blockDim.x; // thread pula para frente, garantindo que nao ira processar um valor ja processado
+        // saira do bloco quando terminar todos os pixeis dos quais eh responsavel
     }
+
+    __syncthreads();
+
+    //--
+
+    // Passa os resultados da shared memory para matriz
+    if (threadIdx.x < segCount) atomicAdd(&histograms[(blockIdx.x * segCount) + threadIdx.x], sharedHist[threadIdx.x]);
+    // Y: (blockIdx.x * segCount)
+    // X: threadIdx.x
+
+    __syncthreads();
 }
 
-int main() {
-    // Host histograms matrix
-    int h_histograms[NUM_HISTOGRAMS][HISTOGRAM_BINS] = {0};
 
-    // Device arrays
-    int *d_input, *d_histograms;
+
+//---------------------------------------------------------------
+
+
+
+int main() {
+    ////======= ARRAY
+    int *d_input;
+    u_int* h_input = genRandomArray(ARRAYSIZE);
 
     // Allocate memory on the device
-    cudaMalloc((void**)&d_input, N * sizeof(int));
-    cudaMalloc((void**)&d_histograms, NUM_HISTOGRAMS * HISTOGRAM_BINS * sizeof(int));
+    cudaMalloc((void**)&d_input, ARRAYSIZE * sizeof(int));
+    cudaMemcpy(d_input, h_input, ARRAYSIZE * sizeof(int), cudaMemcpyHostToDevice);
 
-    // Copy input array to device
-    cudaMemcpy(d_input, h_input, N * sizeof(int), cudaMemcpyHostToDevice);
-    cudaMemset(d_histograms, 0, NUM_HISTOGRAMS * HISTOGRAM_BINS * sizeof(int));  // Initialize histograms to 0
+    int min = getMin(h_input, ARRAYSIZE);
+    int max = getMax(h_input, ARRAYSIZE);
+
+    printArray(h_input, ARRAYSIZE);
+    printSegmentations(min, max, h_input, ARRAYSIZE, HIST_SEGMENTATIONS);
+
+    ////======= HISTOGRAM
+
+    int *d_histograms;
+    int h_histograms[BLOCKS][HIST_SEGMENTATIONS] = {0};
+
+    // Allocate memory on the device
+    cudaMalloc((void**)&d_histograms, HISTOGRAM * sizeof(int));
+    cudaMemset(d_histograms, 0, HISTOGRAM * sizeof(int));  // Initialize histograms to 0
+
+    ////======= KERNEL
 
     // Launch kernel
-    int numBlocks = NUM_HISTOGRAMS;            // Each block corresponds to one histogram
-    int threadsPerBlock = N / NUM_HISTOGRAMS;  // Each thread handles one element in the partition
-    calculateHistogram<<<numBlocks, threadsPerBlock, HISTOGRAM_BINS>>>(d_input, d_histograms, N, NUM_HISTOGRAMS, HISTOGRAM_BINS, 2, 45);
+    calculateHistogram<<<BLOCKS, THREADS, SEG_SIZE>>>(d_input, d_histograms, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max);
+
+    ////======= COPY BACK
 
     // Copy result back to host
-    cudaMemcpy(h_histograms, d_histograms, NUM_HISTOGRAMS * HISTOGRAM_BINS * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_histograms, d_histograms, HISTOGRAM * sizeof(int), cudaMemcpyDeviceToHost);
+
+    ////======= PRINT RESULT
 
     // Print the histograms
-    for (int i = 0; i < NUM_HISTOGRAMS; i++) {
+    for (int i = 0; i < BLOCKS; i++) {
         std::cout << "Histogram " << i << ": ";
-        for (int j = 0; j < HISTOGRAM_BINS; j++)
+        for (int j = 0; j < HIST_SEGMENTATIONS; j++)
             std::cout << h_histograms[i][j] << " ";
         std::cout << std::endl;
     }
+
+    ////======= FREE MEMORY
 
     // Free device memory
     cudaFree(d_input);
