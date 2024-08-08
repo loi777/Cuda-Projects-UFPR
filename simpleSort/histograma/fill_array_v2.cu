@@ -4,22 +4,22 @@
 
 typedef unsigned int u_int;
 
-#define BLOCKS 4                            // one block for one histogram
+#define BLOCKS 8                            // one block for one histogram
 #define THREADS 5                           // n of threads
 
-#define ARRAYSIZE 20                        // Size of the input array
-#define HIST_SEGMENTATIONS 6                // BINS number
+#define ARRAYSIZE 42                        // Size of the input array
+#define HIST_SEGMENTATIONS 12                // BINS number
 
-#define SEG_SIZE (ceil(ARRAYSIZE/BLOCKS))   // Every block will solve this size, minimun of 1
+#define SEG_SIZE (ceil((float)ARRAYSIZE/(float)BLOCKS))   // Every block will solve this size, minimun of 1
 
-#define HISTOGRAM (BLOCKS*HIST_SEGMENTATIONS)           // the full histogram, block:y | segmentation:x
+#define HISTOGRAM (BLOCKS*HIST_SEGMENTATIONS)             // the full histogram, block:y | segmentation:x
 
 // The input array  // only for testing
 //const int h_input[ARRAYSIZE] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
 
-#define BINSIZE(min, max, segCount) ((max - min) / segCount)
+#define BINSIZE(min, max, segCount) (ceil(((float)max - (float)min) / (float)segCount))
 #define BINSTART(min, binSize, i) ((binWidth*i)+min)
-#define BINEND(min, binSize, i) ((binWidth*(i+1))+1+min)
+#define BINEND(min, binSize, i) (BINSTART(min, binSize, (i+1))-1)
 #define BINFIND(min, max, val, binSize, binQtd) (val >= max ? binQtd-1 : (val - min) / binSize)  // this has a problem, the max value goes 1 beyond the binSize
 
 //---------------------------------------------------------------
@@ -40,6 +40,11 @@ u_int* genRandomArray(int nElem) {
 
   return array;
 }
+
+
+
+//---------------------------------------------------------------
+
 
 
 // returns the min value of an Array
@@ -109,7 +114,6 @@ void printSegmentations(int min, int max, u_int* a, int size, int segCount) {
 __global__ void calculateHistogram(const int *input, int *histograms, int arraySize, int segSize, int segCount, int minVal, int maxVal) {
     // Alloca shared memory para UM histograma
     extern __shared__ int sharedHist[];
-    if (threadIdx.x < segCount) sharedHist[threadIdx.x] = 0;
 
     __syncthreads();  // threads will wait for the shared memory to be finished
 

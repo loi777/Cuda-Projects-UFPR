@@ -8,5 +8,13 @@
 			"path": "../.."
 		}
 	],
-	"settings": {}
+	"settings": {
+		"files.associations": {
+			"chrono": "cpp",
+			"random": "cpp",
+			"limits": "cpp",
+			"valarray": "cpp",
+			"algorithm": "cpp"
+		}
+	}
 }
