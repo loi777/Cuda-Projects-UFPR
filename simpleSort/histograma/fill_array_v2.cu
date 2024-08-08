@@ -8,7 +8,7 @@ typedef unsigned int u_int;
 #define THREADS 5                           // n of threads
 
 #define ARRAYSIZE 20                        // Size of the input array
-#define HIST_SEGMENTATIONS 6                // Nu mber of bins in each histogram
+#define HIST_SEGMENTATIONS 6                // BINS number
 
 #define SEG_SIZE (ceil(ARRAYSIZE/BLOCKS))   // Every block will solve this size, minimun of 1
 
