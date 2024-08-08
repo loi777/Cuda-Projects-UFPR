@@ -20,7 +20,7 @@ typedef unsigned int u_int;
 #define BINSIZE(min, max, segCount) ((max - min) / segCount)
 #define BINSTART(min, binSize, i) ((binWidth*i)+min)
 #define BINEND(min, binSize, i) ((binWidth*(i+1))+1+min)
-#define BINFIND(min, val, binSize) ((val - min) / binSize)  // this has a problem, the max value goes 1 beyond the binSize
+#define BINFIND(min, max, val, binSize, binQtd) (val >= max ? binQtd-1 : (val - min) / binSize)  // this has a problem, the max value goes 1 beyond the binSize
 
 //---------------------------------------------------------------
 
@@ -126,8 +126,8 @@ __global__ void calculateHistogram(const int *input, int *histograms, int arrayS
         // Loop enquanto a thread estiver resolvendo elementos validos dentro do bloco e do array
 
         u_int val = input[blcStart + thrPosi];    // get value
-        atomicAdd(&sharedHist[BINFIND(minVal, val, binWidth)], 1);  // add to its corresponding segment
-        printf("DEBUGG: Blk(%d) Thr(%d): hist %d for number [%d] = %d\n", blockIdx.x, threadIdx.x, BINFIND(minVal, val, binWidth), blcStart + thrPosi, val);
+        atomicAdd(&sharedHist[BINFIND(minVal, maxVal, val, binWidth, segCount)], 1);  // add to its corresponding segment
+        printf("DEBUGG: Blk(%d) Thr(%d): hist %d for number [%d] = %d\n", blockIdx.x, threadIdx.x, BINFIND(minVal, maxVal, val, binWidth, segCount), blcStart + thrPosi, val);
 
         thrPosi += blockDim.x; // thread pula para frente, garantindo que nao ira processar um valor ja processado
         // saira do bloco quando terminar todos os pixeis dos quais eh responsavel
