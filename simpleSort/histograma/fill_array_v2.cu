@@ -8,16 +8,19 @@ typedef unsigned int u_int;
 #define THREADS 5                           // n of threads
 
 #define ARRAYSIZE 20                        // Size of the input array
-#define HIST_SEGMENTATIONS 6                // Number of bins in each histogram
+#define HIST_SEGMENTATIONS 6                // Nu mber of bins in each histogram
 
-#define SEG_SIZE (ceil(ARRAYSIZE/HIST_SEGMENTATIONS))   // Every block will solve this size, minimun of 1
+#define SEG_SIZE (ceil(ARRAYSIZE/BLOCKS))   // Every block will solve this size, minimun of 1
 
 #define HISTOGRAM (BLOCKS*HIST_SEGMENTATIONS)           // the full histogram, block:y | segmentation:x
 
 // The input array  // only for testing
 //const int h_input[ARRAYSIZE] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
 
-
+#define BINSIZE(min, max, segCount) ((max - min) / segCount)
+#define BINSTART(min, binSize, i) ((binWidth*i)+min)
+#define BINEND(min, binSize, i) ((binWidth*(i+1))+1+min)
+#define BINFIND(min, val, binSize) ((val - min) / binSize)  // this has a problem, the max value goes 1 beyond the binSize
 
 //---------------------------------------------------------------
 
@@ -84,13 +87,13 @@ void printArray(u_int* a, int size) {
 
 // Debugg function to print an array
 void printSegmentations(int min, int max, u_int* a, int size, int segCount) {
-    int binWidth = ((max - min) / segCount) + 1;
+    int binWidth = BINSIZE(min, max, segCount);
 
     //--
 
     std::cout << "min: " << min << " | max: " << max << std::endl;
     for (int i = 0; i < segCount; i++) {
-        std::cout << "Seg|Bin [" << i << "]: " << ((binWidth*i)+min) << " to " << ((binWidth*(i+1))-1+min) << "\n";
+        std::cout << "Seg|Bin [" << i << "]: " << BINSTART(min, binWidth, i) << " to " << BINEND(min, binWidth, i) << "\n";
     }
     std::cout << std::endl;
 }
@@ -113,17 +116,18 @@ __global__ void calculateHistogram(const int *input, int *histograms, int arrayS
     //---
 
     // Inicio da particao no vetor
-    int blcStart = blockIdx.x * segSize;    // bloco positionado na frente daquele que veio anterior a ele
-    int thrPosi = threadIdx.x;             // 1 elemento por thread
+    int blcStart = (blockIdx.x * segSize);    // bloco positionado na frente daquele que veio anterior a ele
+    int thrPosi = threadIdx.x;              // 1 elemento por thread, starts as exactly the thread.x
 
     // Calcula intervalo de cada bin, o conjunto de numeros dele
-    int binWidth = ((maxVal - minVal) / segCount) + 1;
+    int binWidth = BINSIZE(minVal, maxVal, segCount);
 
     while(thrPosi < segSize && ((blcStart+thrPosi) < arraySize)) {
         // Loop enquanto a thread estiver resolvendo elementos validos dentro do bloco e do array
 
-        int val = input[blcStart + thrPosi];    // get value
-        atomicAdd(&sharedHist[(val - minVal) / binWidth], 1);  // add to its corresponding segment
+        u_int val = input[blcStart + thrPosi];    // get value
+        atomicAdd(&sharedHist[BINFIND(minVal, val, binWidth)], 1);  // add to its corresponding segment
+        printf("DEBUGG: Blk(%d) Thr(%d): hist %d for number [%d] = %d\n", blockIdx.x, threadIdx.x, BINFIND(minVal, val, binWidth), blcStart + thrPosi, val);
 
         thrPosi += blockDim.x; // thread pula para frente, garantindo que nao ira processar um valor ja processado
         // saira do bloco quando terminar todos os pixeis dos quais eh responsavel
@@ -134,7 +138,12 @@ __global__ void calculateHistogram(const int *input, int *histograms, int arrayS
     //--
 
     // Passa os resultados da shared memory para matriz
-    if (threadIdx.x < segCount) atomicAdd(&histograms[(blockIdx.x * segCount) + threadIdx.x], sharedHist[threadIdx.x]);
+    // deixar isso a cargo da thread 0 eh mais modular que mandar uma pra uma
+    if (threadIdx.x == 0) {
+      for (int i = 0; i < segCount; i++) {
+        atomicAdd(&histograms[(blockIdx.x * segCount) + i], sharedHist[i]); 
+      }
+    }
     // Y: (blockIdx.x * segCount)
     // X: threadIdx.x
 

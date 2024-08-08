@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "../../.."
+		},
+		{
+			"name": "Cuda-Projects-UFPR",
+			"path": "../.."
+		}
+	],
+	"settings": {}
+}
