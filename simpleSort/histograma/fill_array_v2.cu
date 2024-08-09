@@ -7,8 +7,8 @@ typedef unsigned int u_int;
 #define BLOCKS 8                            // one block for one histogram
 #define THREADS 5                           // n of threads
 
-#define ARRAYSIZE 42                        // Size of the input array
-#define HIST_SEGMENTATIONS 12                // BINS number
+#define ARRAYSIZE 10                        // Size of the input array
+#define HIST_SEGMENTATIONS 5                // BINS number
 
 #define SEG_SIZE (ceil((float)ARRAYSIZE/(float)BLOCKS))   // Every block will solve this size, minimun of 1
 
@@ -17,10 +17,9 @@ typedef unsigned int u_int;
 // The input array  // only for testing
 //const int h_input[ARRAYSIZE] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
 
-#define BINSIZE(min, max, segCount) (ceil(((float)max - (float)min) / (float)segCount))
-#define BINSTART(min, binSize, i) ((binWidth*i)+min)
-#define BINEND(min, binSize, i) (BINSTART(min, binSize, (i+1))-1)
-#define BINFIND(min, max, val, binSize, binQtd) (val >= max ? binQtd-1 : (val - min) / binSize)  // this has a problem, the max value goes 1 beyond the binSize
+#define BINSTART(min, binSize, i) ((u_int)((binWidth*i)+min))
+#define BINEND(min, binSize, i) ((u_int)(BINSTART(min, binSize, (i+1))-1))
+#define BINFIND(min, max, val, binSize, binQtd) (val >= max ? binQtd-1 : (val - min) / binSize)
 
 //---------------------------------------------------------------
 
@@ -45,6 +44,25 @@ u_int* genRandomArray(int nElem) {
 
 //---------------------------------------------------------------
 
+
+
+// returns the size of the number group of each bin
+// needs some strange calculations due to precision error
+u_int getBinSize(u_int min, u_int max, int segCount) {
+  u_int binSize = max - min;
+  if ((binSize % segCount) == 0) {
+    // complete division
+    binSize /= segCount;
+
+  } else {
+    // incomplete division
+    binSize /= segCount;
+    binSize++;
+
+  }
+
+  return binSize;
+}
 
 
 // returns the min value of an Array
@@ -91,12 +109,13 @@ void printArray(u_int* a, int size) {
 
 
 // Debugg function to print an array
-void printSegmentations(int min, int max, u_int* a, int size, int segCount) {
-    int binWidth = BINSIZE(min, max, segCount);
+void printSegmentations(u_int min, u_int max, u_int* a, int size, int segCount) {
+    u_int binWidth = getBinSize(min, max, segCount);  
 
     //--
 
     std::cout << "min: " << min << " | max: " << max << std::endl;
+    std::cout << "Bin Size: " << binWidth << std::endl;
     for (int i = 0; i < segCount; i++) {
         std::cout << "Seg|Bin [" << i << "]: " << BINSTART(min, binWidth, i) << " to " << BINEND(min, binWidth, i) << "\n";
     }
@@ -111,7 +130,7 @@ void printSegmentations(int min, int max, u_int* a, int size, int segCount) {
 
 // Kernel para calcular histogramas em particoes
 // Cada bloco eh responsavel por um histograma (linha da matriz)
-__global__ void calculateHistogram(const int *input, int *histograms, int arraySize, int segSize, int segCount, int minVal, int maxVal) {
+__global__ void calculateHistogram(const u_int *input, int *histograms, int arraySize, int segSize, int segCount, u_int minVal, u_int maxVal, u_int binWidth) {
     // Alloca shared memory para UM histograma
     extern __shared__ int sharedHist[];
 
@@ -122,9 +141,6 @@ __global__ void calculateHistogram(const int *input, int *histograms, int arrayS
     // Inicio da particao no vetor
     int blcStart = (blockIdx.x * segSize);    // bloco positionado na frente daquele que veio anterior a ele
     int thrPosi = threadIdx.x;              // 1 elemento por thread, starts as exactly the thread.x
-
-    // Calcula intervalo de cada bin, o conjunto de numeros dele
-    int binWidth = BINSIZE(minVal, maxVal, segCount);
 
     while(thrPosi < segSize && ((blcStart+thrPosi) < arraySize)) {
         // Loop enquanto a thread estiver resolvendo elementos validos dentro do bloco e do array
@@ -162,15 +178,16 @@ __global__ void calculateHistogram(const int *input, int *histograms, int arrayS
 
 int main() {
     ////======= ARRAY
-    int *d_input;
+    u_int *d_input;
     u_int* h_input = genRandomArray(ARRAYSIZE);
 
     // Allocate memory on the device
-    cudaMalloc((void**)&d_input, ARRAYSIZE * sizeof(int));
-    cudaMemcpy(d_input, h_input, ARRAYSIZE * sizeof(int), cudaMemcpyHostToDevice);
+    cudaMalloc((void**)&d_input, ARRAYSIZE * sizeof(u_int));
+    cudaMemcpy(d_input, h_input, ARRAYSIZE * sizeof(u_int), cudaMemcpyHostToDevice);
 
-    int min = getMin(h_input, ARRAYSIZE);
-    int max = getMax(h_input, ARRAYSIZE);
+    u_int min = getMin(h_input, ARRAYSIZE);
+    u_int max = getMax(h_input, ARRAYSIZE);
+    u_int binWidth = getBinSize(min, max, HIST_SEGMENTATIONS);
 
     printArray(h_input, ARRAYSIZE);
     printSegmentations(min, max, h_input, ARRAYSIZE, HIST_SEGMENTATIONS);
@@ -187,7 +204,7 @@ int main() {
     ////======= KERNEL
 
     // Launch kernel
-    calculateHistogram<<<BLOCKS, THREADS, SEG_SIZE>>>(d_input, d_histograms, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max);
+    calculateHistogram<<<BLOCKS, THREADS, SEG_SIZE>>>(d_input, d_histograms, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
 
     ////======= COPY BACK
 
