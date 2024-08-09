@@ -1,5 +1,6 @@
 #include <iostream>
 #include <sys/types.h>
+#include <unistd.h>
 #include <vector>
 #include <cstdlib>
 #include <ctime>
@@ -193,13 +194,14 @@ __global__ void arrayPartitioner(u_int* output, u_int* input, u_int* table, u_in
 //---------------------------------------------------------------------------------
 
 
-void verifySort(unsigned int *Input, unsigned int *Output, int nElements) {
-  thrust::device_vector<unsigned int> d_Input(Input, Input + nElements);
-  thrust::device_vector<unsigned int> d_Output(Output, Output + nElements);
+//cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
+//verifySort(Input, Output, nTotalElements);
+void verifySort(u_int *Input, u_int *Output, u_int nElements) {
+  thrust::device_vector<u_int> d_Input(Input, Input + nElements);
+  thrust::device_vector<u_int> d_Output(Output, Output + nElements);
   thrust::sort(d_Input.begin(), d_Input.end());
 
   bool isSorted = thrust::equal(d_Input.begin(), d_Input.end(), d_Output.begin());
-
   if (isSorted) { std::cout << "Sort verification: SUCCESS" << std::endl; } 
   else          { std::cout << "Sort verification: FAILURE" << std::endl; }
 }
@@ -232,7 +234,6 @@ u_int check_parameters(int argc){
     std::cerr << "Usage: ./simpleSort <nTotalElements> <h> <nR>" << std::endl;
     return EXIT_FAILURE;
   }
-
   return 0;
 }
 
@@ -247,17 +248,15 @@ int main(int argc, char* argv[]) {
   //u_int nTotalElements = std::stoi(argv[1]);                    // Numero de elementos
   //u_int h = std::stoi(argv[2]);                                 // Numero de histogramas
   //u_int nR = std::stoi(argv[3]);                                // Numero de chamadas do kernel
-  //u_int *Input = new unsigned int[nTotalElements];              // Vetor de entrada
-  //u_int *Output = new u_int[nTotalElements];                    // Vetor ordenado
+  //u_int *Input = genRandomArray(nTotalElements);                // Vetor de entrada
   u_int nTotalElements = 18;
   u_int h = 6;
-  u_int nR = 1;                                                   // Numero de chamadas do kernel
+  u_int nR = 1;
   u_int Input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
   u_int *Output = new u_int[nTotalElements];                      // Vetor ordenado
   u_int *stage = new u_int[nTotalElements];                       // Vetor de debug da memoria da gpu
   u_int SEG_SIZE = (ceil((float)nTotalElements/((float)NP*(float)BLOCKS)));
-  chronometer_t chrono_Thrust;
-  chronometer_t chrono_Hist;
+  chronometer_t chrono_Thrust, chrono_Hist;
 
   // Busca menor valor, maior valor e o comprimento do bin
   u_int nMin = *std::min_element(Input, Input + nTotalElements);
@@ -279,7 +278,6 @@ int main(int argc, char* argv[]) {
   chrono_reset(&chrono_Hist);
 
   for (int i = 0; i < nR; ++i) {
-    // TODO: TIME STAMP
     chrono_start(&chrono_Hist);
     blockAndGlobalHisto<<<NP*BLOCKS, THREADS, SEG_SIZE>>>(HH, Hg, h, d_Input, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
     globalHistoScan<<<1, THREADS>>>(Hg, SHg, h);
@@ -289,48 +287,56 @@ int main(int argc, char* argv[]) {
     // BitonicSort????
     chrono_stop(&chrono_Hist);
 
+    cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
+    thrust::device_vector<u_int> th_Input(Input, Input + nTotalElements);
+    thrust::device_vector<u_int> th_Output(Output, Output + nTotalElements);
+    
     chrono_start(&chrono_Thrust);
-    // Thrust sort???
+    thrust::sort(th_Input.begin(), th_Input.end());
     chrono_stop(&chrono_Thrust);
+
+    bool isSorted = thrust::equal(th_Input.begin(), th_Input.end(), th_Output.begin());
+    if (isSorted) { std::cout << "Sort verification: SUCCESS" << std::endl; } 
+    else          { std::cout << "Sort verification: FAILURE" << std::endl; }
   }
 
   // ---
 
-  cudaMemcpy(stage, HH, NP * BLOCKS * h * sizeof(u_int), cudaMemcpyDeviceToHost);
-  std::cout << "HH: " << std::endl;
-  for (size_t i=0; i<NP*BLOCKS ;i++){
-    for (size_t j=0; j<h ;j++)
-      std::cout << stage[i*h + j] << " ";
-    std::cout << std::endl;
-  }
+  //cudaMemcpy(stage, HH, NP * BLOCKS * h * sizeof(u_int), cudaMemcpyDeviceToHost);
+  //std::cout << "HH: " << std::endl;
+  //for (size_t i=0; i<NP*BLOCKS ;i++){
+  //  for (size_t j=0; j<h ;j++)
+  //    std::cout << stage[i*h + j] << " ";
+  //  std::cout << std::endl;
+  //}
 
-  cudaMemcpy(stage, Hg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
-  std::cout << "Hg: " << std::endl;
-  for (size_t i=0; i<h ;i++)
-    std::cout << stage[i] << " ";
-  std::cout << std::endl;
+  //cudaMemcpy(stage, Hg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
+  //std::cout << "Hg: " << std::endl;
+  //for (size_t i=0; i<h ;i++)
+  //  std::cout << stage[i] << " ";
+  //std::cout << std::endl;
 
-  cudaMemcpy(stage, SHg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
-  std::cout << "SHg: " << std::endl;
-  for (size_t i=0; i<h ;i++)
-    std::cout << stage[i] << " ";
-  std::cout << std::endl;
+  //cudaMemcpy(stage, SHg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
+  //std::cout << "SHg: " << std::endl;
+  //for (size_t i=0; i<h ;i++)
+  //  std::cout << stage[i] << " ";
+  //std::cout << std::endl;
 
-  cudaMemcpy(stage, PSv, NP * BLOCKS * h * sizeof(u_int), cudaMemcpyDeviceToHost);
-  std::cout << "PSv: " << std::endl;
-  for (size_t i=0; i<NP*BLOCKS ;i++){
-    for (size_t j=0; j<h ;j++)
-      std::cout << stage[i*h + j] << " ";
-    std::cout << std::endl;
-  }
+  //cudaMemcpy(stage, PSv, NP * BLOCKS * h * sizeof(u_int), cudaMemcpyDeviceToHost);
+  //std::cout << "PSv: " << std::endl;
+  //for (size_t i=0; i<NP*BLOCKS ;i++){
+  //  for (size_t j=0; j<h ;j++)
+  //    std::cout << stage[i*h + j] << " ";
+  //  std::cout << std::endl;
+  //}
 
-  cudaMemcpy(stage, V, NP * BLOCKS * h * sizeof(u_int), cudaMemcpyDeviceToHost);
-  std::cout << "V: " << std::endl;
-  for (size_t i=0; i<NP*BLOCKS ;i++){
-    for (size_t j=0; j<h ;j++)
-      std::cout << stage[i*h + j] << " ";
-    std::cout << std::endl;
-  }
+  //cudaMemcpy(stage, V, NP * BLOCKS * h * sizeof(u_int), cudaMemcpyDeviceToHost);
+  //std::cout << "V: " << std::endl;
+  //for (size_t i=0; i<NP*BLOCKS ;i++){
+  //  for (size_t j=0; j<h ;j++)
+  //    std::cout << stage[i*h + j] << " ";
+  //  std::cout << std::endl;
+  //}
 
   cudaMemcpy(stage, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
   std::cout << "d_Output: " << std::endl;
@@ -364,9 +370,6 @@ int main(int argc, char* argv[]) {
 
   //--
 
-  //cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
-  //verifySort(Input, Output, nTotalElements);
-
   cudaFree(d_Input);
   cudaFree(d_Output);
   cudaFree(HH);
@@ -376,7 +379,7 @@ int main(int argc, char* argv[]) {
   cudaFree(V);
 
   //delete[] Input;
-  //delete[] Output;
+  delete[] Output;
 
   return EXIT_SUCCESS;
 }
