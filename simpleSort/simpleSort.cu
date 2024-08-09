@@ -337,12 +337,6 @@ int main(int argc, char* argv[]) {
   //  std::cout << std::endl;
   //}
 
-  cudaMemcpy(stage, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
-  std::cout << "d_Output: " << std::endl;
-  for (size_t i=0; i<nTotalElements ;i++)
-      std::cout << stage[i] << " ";
-    std::cout << std::endl;
-
   // ---
 
   printf("\n----THRUST\n");
