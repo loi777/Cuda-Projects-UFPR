@@ -254,7 +254,6 @@ int main(int argc, char* argv[]) {
   u_int nR = 1;
   u_int Input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
   u_int *Output = new u_int[nTotalElements];                      // Vetor ordenado
-  u_int *stage = new u_int[nTotalElements];                       // Vetor de debug da memoria da gpu
   u_int SEG_SIZE = (ceil((float)nTotalElements/((float)NP*(float)BLOCKS)));
   chronometer_t chrono_Thrust, chrono_Hist;
 
