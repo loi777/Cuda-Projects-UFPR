@@ -2,7 +2,7 @@ CC = nvcc
 CFLAGS = -arch=sm_61 -I/usr/include/c++/10 -I/usr/lib/cuda/include/ --std=c++11
 LDLIBS = 
 
-EXEC = fill_array_v2
+EXEC = histogram
 
 
 

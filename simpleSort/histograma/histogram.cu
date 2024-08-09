@@ -14,9 +14,6 @@ typedef unsigned int u_int;
 
 #define HISTOGRAM (BLOCKS*HIST_SEGMENTATIONS)             // the full histogram, block:y | segmentation:x
 
-// The input array  // only for testing
-//const int h_input[ARRAYSIZE] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
-
 #define BINSTART(min, binSize, i) ((u_int)((binWidth*i)+min))
 #define BINEND(min, binSize, i) ((u_int)(BINSTART(min, binSize, (i+1))-1))
 #define BINFIND(min, max, val, binSize, binQtd) (val >= max ? binQtd-1 : (val - min) / binSize)
