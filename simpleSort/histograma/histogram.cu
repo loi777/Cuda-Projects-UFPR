@@ -144,8 +144,6 @@ __global__ void calculateHistogram(const u_int *input, int *histograms, int *his
     // Alloca shared memory para UM histograma
     extern __shared__ int sharedHist[];
 
-    __syncthreads();  // threads will wait for the shared memory to be finished
-
     //---
 
     // Inicio da particao no vetor
@@ -281,6 +279,40 @@ __global__ void calculateVectorSum(int* matriz, int* horVec, int* vertVec, int h
 
 
 
+// Uses the consultation table to separate the groups of numbers according to their bins
+// saves in output device memory
+__global__ void arrayPartitioner(u_int* output, u_int* input, int* table, int arraySize, int segSize, int segCount, u_int minVal, u_int maxVal, u_int binWidth) {
+  int posiX = threadIdx.x;
+  int blkDiff = (blockIdx.x * segSize);
+
+  //--
+
+  while((posiX < segSize) && ((posiX+blkDiff) < arraySize)) {
+    // while inside the block scope and inside the array
+
+    //                     X                                                                Y
+    int tableID = BINFIND(minVal, maxVal, input[posiX+blkDiff], binWidth, segCount) + (blockIdx.x*segCount);
+
+    //printf("thr(%d) blk(%d) :: saving [%d]%d to [%d]", threadIdx.x, blockIdx.x, posiX+blkDiff, input[posiX+blkDiff], table[tableID]);
+
+    output[table[tableID]] = input[posiX+blkDiff];
+    atomicAdd(&table[tableID], 1);
+
+    // jumps to next unprocessed element
+    posiX += blockDim.x;
+  }
+
+  //--
+
+  __syncthreads();
+}
+
+
+
+//---------------------------------------------------------------
+
+
+
 int main() {
     ////======= INPUT VECTORS
     u_int *d_input;
@@ -326,11 +358,19 @@ int main() {
 
     ////======= VECTORIAL SUM
 
-    int *d_vecSum;                                    // the conbination of Horizontal and Vertical Scan
+    int *d_vecSum;                                    // the combination of Horizontal and Vertical Scan
     int h_vecSum[BLOCKS][HIST_SEGMENTATIONS] = {0};
 
     cudaMalloc((void**)&d_vecSum, HISTOGRAM * sizeof(int));
     cudaMemset(d_vecSum, 0, HISTOGRAM * sizeof(int));  // Initialize histograms to 0
+
+    ////======= OUTPUT array
+
+    u_int *d_output;                                    // the final array memory
+    u_int h_output[ARRAYSIZE] = {0};
+
+    cudaMalloc((void**)&d_output, ARRAYSIZE * sizeof(u_int));
+    cudaMemset(d_output, 0, ARRAYSIZE * sizeof(u_int));  // Initialize histograms to 0
 
     ////=======////======= KERNEL 1 - HIST
 
@@ -350,6 +390,11 @@ int main() {
     // Launch kernel for vectorial sum
     calculateVectorSum<<<1, THREADS>>>(d_vecSum, d_scan, d_verticalScan, HIST_SEGMENTATIONS, BLOCKS);
 
+    ////=======////======= KERNEL 5 - PARTITION
+
+    // Launch kernel that uses the information in vector sum to ordenate
+    arrayPartitioner<<<BLOCKS, THREADS>>>(d_output, d_input, d_vecSum, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
+
     ////=======////======= COPY BACK
 
     // Copy result back to host
@@ -358,6 +403,7 @@ int main() {
     cudaMemcpy(h_scan, d_scan, HIST_SEGMENTATIONS * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(h_verticalScan, d_verticalScan, HISTOGRAM * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(h_vecSum, d_vecSum, HISTOGRAM * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_output, d_output, ARRAYSIZE * sizeof(u_int), cudaMemcpyDeviceToHost);
 
     ////======= PRINT RESULT
 
@@ -390,6 +436,8 @@ int main() {
             std::cout << h_vecSum[i][j] << " ";
         std::cout << std::endl;
     }
+
+    uintPrintArray(h_output, ARRAYSIZE);
 
     ////======= FREE MEMORY
 
