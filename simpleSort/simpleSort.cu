@@ -9,6 +9,8 @@
 #include <thrust/sort.h>
 #include <thrust/device_vector.h>
 
+#include "chrono.c"
+
 typedef unsigned int u_int;
 
 #define NP 1             // Number of processors
@@ -161,6 +163,33 @@ __global__ void partitionKernel(u_int *V, u_int *SHg, u_int *PSv, u_int h, u_int
 }
 
 
+// Uses the consultation table to separate the groups of numbers according to their bins
+// saves in output device memory
+__global__ void arrayPartitioner(u_int* output, u_int* input, u_int* table, u_int arraySize, u_int segSize, u_int segCount, u_int minVal, u_int maxVal, u_int binWidth) {
+  int posiX = threadIdx.x;
+  int blkDiff = (blockIdx.x * segSize);
+
+  //--
+
+  while((posiX < segSize) && ((posiX+blkDiff) < arraySize)) {
+    // while inside the block scope and inside the array
+
+    //                     X                                                                Y
+    int tableID = BINFIND(minVal, maxVal, input[posiX+blkDiff], binWidth, segCount) + (blockIdx.x*segCount);
+    int posi = atomicAdd(&table[tableID], 1);
+
+    output[posi] = input[posiX+blkDiff];
+
+    // jumps to next unprocessed element
+    posiX += blockDim.x;
+  }
+
+  //--
+
+  __syncthreads();
+}
+
+
 //---------------------------------------------------------------------------------
 
 
@@ -222,10 +251,13 @@ int main(int argc, char* argv[]) {
   //u_int *Output = new u_int[nTotalElements];                    // Vetor ordenado
   u_int nTotalElements = 18;
   u_int h = 6;
+  u_int nR = 1;                                                   // Numero de chamadas do kernel
   u_int Input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
   u_int *Output = new u_int[nTotalElements];                      // Vetor ordenado
   u_int *stage = new u_int[nTotalElements];                       // Vetor de debug da memoria da gpu
   u_int SEG_SIZE = (ceil((float)nTotalElements/((float)NP*(float)BLOCKS)));
+  chronometer_t chrono_Thrust;
+  chronometer_t chrono_Hist;
 
   // Busca menor valor, maior valor e o comprimento do bin
   u_int nMin = *std::min_element(Input, Input + nTotalElements);
@@ -243,14 +275,24 @@ int main(int argc, char* argv[]) {
   cudaMalloc((void**)&V,        NP * BLOCKS * h * sizeof(u_int));
   cudaMemcpy(d_Input, Input, nTotalElements * sizeof(u_int), cudaMemcpyHostToDevice);
 
-  //for (int i = 0; i < nR; ++i) {
+  chrono_reset(&chrono_Thrust);
+  chrono_reset(&chrono_Hist);
+
+  for (int i = 0; i < nR; ++i) {
     // TODO: TIME STAMP
+    chrono_start(&chrono_Hist);
     blockAndGlobalHisto<<<NP*BLOCKS, THREADS, SEG_SIZE>>>(HH, Hg, h, d_Input, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
     globalHistoScan<<<1, THREADS>>>(Hg, SHg, h);
     verticalScanHH<<<1, THREADS>>>(HH, PSv, h, NP*BLOCKS);
     partitionKernel<<<1, THREADS>>>(V, SHg, PSv, h, NP*BLOCKS);
+    arrayPartitioner<<<NP*BLOCKS, THREADS>>>(d_Output, d_Input, V, nTotalElements, SEG_SIZE, h, nMin, nMax, binWidth);
     // BitonicSort????
-  //}
+    chrono_stop(&chrono_Hist);
+
+    chrono_start(&chrono_Thrust);
+    // Thrust sort???
+    chrono_stop(&chrono_Thrust);
+  }
 
   // ---
 
@@ -290,7 +332,37 @@ int main(int argc, char* argv[]) {
     std::cout << std::endl;
   }
 
+  cudaMemcpy(stage, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
+  std::cout << "d_Output: " << std::endl;
+  for (size_t i=0; i<nTotalElements ;i++)
+      std::cout << stage[i] << " ";
+    std::cout << std::endl;
+
   // ---
+
+  printf("\n----THRUST\n");
+  printf("Delta time: " );
+  chrono_report_TimeInLoop( &chrono_Thrust, (char *)"thrust max_element", nR);
+
+  double thrust_time_seconds = (double) chrono_gettotal( &chrono_Thrust )/((double)1000*1000*1000);
+  printf( "Tempo em segundos: %lf s\n", thrust_time_seconds );
+  printf( "Vazão: %lf INT/s\n", (nTotalElements)/thrust_time_seconds );
+  
+  //--
+
+  printf("\n----HISTOGRAM\n");
+  printf("Delta time: " );
+  chrono_report_TimeInLoop( &chrono_Hist, (char *)"reduceMax_persist", nR);
+
+  double reduce_time_seconds = (double) chrono_gettotal( &chrono_Hist )/((double)1000*1000*1000);
+  printf( "Tempo em segundos: %lf s\n", reduce_time_seconds );
+  printf( "Vazão: %lf INT/s\n", (nTotalElements)/reduce_time_seconds );
+
+  printf("\n--Tempo em relacao ao Thrust\n");
+  printf("Em segundos: %lf\n", reduce_time_seconds - thrust_time_seconds);
+  printf("Em porcento: %d\n", (int)((thrust_time_seconds/reduce_time_seconds)*100.0));
+
+  //--
 
   //cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
   //verifySort(Input, Output, nTotalElements);
