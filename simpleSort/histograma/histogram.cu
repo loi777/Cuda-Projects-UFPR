@@ -7,8 +7,8 @@ typedef unsigned int u_int;
 #define BLOCKS 8                            // one block for one histogram
 #define THREADS 5                           // n of threads
 
-#define ARRAYSIZE 10                        // Size of the input array
-#define HIST_SEGMENTATIONS 5                // BINS number
+#define ARRAYSIZE 18                        // Size of the input array
+#define HIST_SEGMENTATIONS 6                // BINS number
 
 #define SEG_SIZE (ceil((float)ARRAYSIZE/(float)BLOCKS))   // Every block will solve this size, minimun of 1
 
@@ -292,11 +292,9 @@ __global__ void arrayPartitioner(u_int* output, u_int* input, int* table, int ar
 
     //                     X                                                                Y
     int tableID = BINFIND(minVal, maxVal, input[posiX+blkDiff], binWidth, segCount) + (blockIdx.x*segCount);
+    int posi = atomicAdd(&table[tableID], 1);
 
-    //printf("thr(%d) blk(%d) :: saving [%d]%d to [%d]", threadIdx.x, blockIdx.x, posiX+blkDiff, input[posiX+blkDiff], table[tableID]);
-
-    output[table[tableID]] = input[posiX+blkDiff];
-    atomicAdd(&table[tableID], 1);
+    output[posi] = input[posiX+blkDiff];
 
     // jumps to next unprocessed element
     posiX += blockDim.x;
@@ -316,7 +314,8 @@ __global__ void arrayPartitioner(u_int* output, u_int* input, int* table, int ar
 int main() {
     ////======= INPUT VECTORS
     u_int *d_input;
-    u_int* h_input = genRandomArray(ARRAYSIZE);
+    //u_int* h_input = genRandomArray(ARRAYSIZE);
+    u_int h_input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
 
     // Allocate memory on the device
     cudaMalloc((void**)&d_input, ARRAYSIZE * sizeof(u_int));
@@ -394,6 +393,11 @@ int main() {
 
     // Launch kernel that uses the information in vector sum to ordenate
     arrayPartitioner<<<BLOCKS, THREADS>>>(d_output, d_input, d_vecSum, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
+
+    ////=======////======= KERNEL 6 - Bitonic Sort
+
+    // launch kernel that that sorts the inside of each bin partition
+    
 
     ////=======////======= COPY BACK
 
