@@ -95,6 +95,7 @@ u_int getMax(u_int* Array, int nElem) {
 
 
 
+// FOR INTERNAL AND DEBUGG USE
 // Debugg function to print an array
 void intPrintArray(int* a, int size) {
     // Print the generated array, do not allow this with arrays of billions
@@ -105,6 +106,7 @@ void intPrintArray(int* a, int size) {
 }
 
 
+// FOR INTERNAL AND DEBUGG USE
 // Debugg function to print an array
 void uintPrintArray(u_int* a, int size) {
     // Print the generated array, do not allow this with arrays of billions
@@ -115,6 +117,7 @@ void uintPrintArray(u_int* a, int size) {
 }
 
 
+// FOR INTERNAL AND DEBUGG USE
 // Debugg function to print an array
 void printSegmentations(u_int min, u_int max, u_int* a, int size, int segCount) {
     u_int binWidth = getBinSize(min, max, segCount);  
@@ -232,12 +235,44 @@ __global__ void calculateVerticalScan(int *histograms, int *Vscan, int segCount,
       //--
 
       posiX += blockDim.x;
-      // next colum
+      // jumps to the next unprocessed column
     }
 
     //--
 
     __syncthreads();
+}
+
+
+
+//---------------------------------------------------------------
+
+
+
+// calculates the sum of a horizontal vector with a vertical vector
+// saves the result inside the matriz
+__global__ void calculateVectorSum(int* matriz, int* horVec, int* vertVec, int horSize, int vertSize) {
+  int posiX = threadIdx.x;         // starts as thread ID
+
+  //--
+
+  while(posiX < horSize) {
+    // Loop while inside the vector horizontal
+
+    // Add value X to the column X
+    for (int posiY = 0; posiY < vertSize; posiY++) {
+      matriz[posiX + (posiY*horSize)] = horVec[posiX] + vertVec[posiX + (posiY*horSize)];
+    }
+
+    //--
+
+    posiX += blockDim.x;
+    // jumps to the next unprocessed column
+  }
+
+  //--
+
+  __syncthreads();
 }
 
 
@@ -289,18 +324,31 @@ int main() {
     cudaMalloc((void**)&d_verticalScan, HISTOGRAM * sizeof(int));
     cudaMemset(d_verticalScan, 0, HISTOGRAM * sizeof(int));  // Initialize histograms to 0
 
+    ////======= VECTORIAL SUM
+
+    int *d_vecSum;                                    // the conbination of Horizontal and Vertical Scan
+    int h_vecSum[BLOCKS][HIST_SEGMENTATIONS] = {0};
+
+    cudaMalloc((void**)&d_vecSum, HISTOGRAM * sizeof(int));
+    cudaMemset(d_vecSum, 0, HISTOGRAM * sizeof(int));  // Initialize histograms to 0
+
     ////=======////======= KERNEL 1 - HIST
 
     // Launch kernel
     calculateHistogram<<<BLOCKS, THREADS, SEG_SIZE>>>(d_input, d_histograms, d_histogram_total, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
 
-    ////=======////======= KERNEL 2 - SCAN
+    ////=======////======= KERNEL 2+3 - SCAN
 
     // Launch kernel horizontal scan
     calculateHorizontalScan<<<1, THREADS>>>(d_histogram_total, d_scan, HIST_SEGMENTATIONS);
 
     // Launch kernel vertical scan
     calculateVerticalScan<<<1, THREADS>>>(d_histograms, d_verticalScan, HIST_SEGMENTATIONS, BLOCKS);
+
+    ////=======////======= KERNEL 4 - VECTOR SUM
+
+    // Launch kernel for vectorial sum
+    calculateVectorSum<<<1, THREADS>>>(d_vecSum, d_scan, d_verticalScan, HIST_SEGMENTATIONS, BLOCKS);
 
     ////=======////======= COPY BACK
 
@@ -309,6 +357,7 @@ int main() {
     cudaMemcpy(h_histogram_total, d_histogram_total, HIST_SEGMENTATIONS * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(h_scan, d_scan, HIST_SEGMENTATIONS * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(h_verticalScan, d_verticalScan, HISTOGRAM * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_vecSum, d_vecSum, HISTOGRAM * sizeof(int), cudaMemcpyDeviceToHost);
 
     ////======= PRINT RESULT
 
@@ -334,6 +383,14 @@ int main() {
         std::cout << std::endl;
     }
 
+    // Print the histograms
+    for (int i = 0; i < BLOCKS; i++) {
+        std::cout << "Final vector Sum " << i << ": ";  
+        for (int j = 0; j < HIST_SEGMENTATIONS; j++)
+            std::cout << h_vecSum[i][j] << " ";
+        std::cout << std::endl;
+    }
+
     ////======= FREE MEMORY
 
     // Free device memory
@@ -342,6 +399,7 @@ int main() {
     cudaFree(d_histogram_total);
     cudaFree(d_scan);
     cudaFree(d_verticalScan);
+    cudaFree(d_vecSum);
 
     return 0;
 }
