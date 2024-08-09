@@ -130,7 +130,7 @@ void printSegmentations(u_int min, u_int max, u_int* a, int size, int segCount) 
 
 // Kernel para calcular histogramas em particoes
 // Cada bloco eh responsavel por um histograma (linha da matriz)
-__global__ void calculateHistogram(const u_int *input, int *histograms, int arraySize, int segSize, int segCount, u_int minVal, u_int maxVal, u_int binWidth) {
+__global__ void calculateHistogram(const u_int *input, int *histograms, int *histogram_T, int arraySize, int segSize, int segCount, u_int minVal, u_int maxVal, u_int binWidth) {
     // Alloca shared memory para UM histograma
     extern __shared__ int sharedHist[];
 
@@ -146,8 +146,9 @@ __global__ void calculateHistogram(const u_int *input, int *histograms, int arra
         // Loop enquanto a thread estiver resolvendo elementos validos dentro do bloco e do array
 
         u_int val = input[blcStart + thrPosi];    // get value
-        atomicAdd(&sharedHist[BINFIND(minVal, maxVal, val, binWidth, segCount)], 1);  // add to its corresponding segment
-        printf("DEBUGG: Blk(%d) Thr(%d): hist %d for number [%d] = %d\n", blockIdx.x, threadIdx.x, BINFIND(minVal, maxVal, val, binWidth, segCount), blcStart + thrPosi, val);
+        int posi = BINFIND(minVal, maxVal, val, binWidth, segCount);
+        atomicAdd(&sharedHist[posi], 1);  // add to its corresponding segment
+        atomicAdd(&histogram_T[posi], 1);  // add to its corresponding segment
 
         thrPosi += blockDim.x; // thread pula para frente, garantindo que nao ira processar um valor ja processado
         // saira do bloco quando terminar todos os pixeis dos quais eh responsavel
@@ -194,22 +195,26 @@ int main() {
 
     ////======= HISTOGRAM
 
-    int *d_histograms;
+    int *d_histograms;          // each block has a histogram
+    int *d_histogram_total;     // the sum of all histograms together
     int h_histograms[BLOCKS][HIST_SEGMENTATIONS] = {0};
+    int h_histogram_total[HIST_SEGMENTATIONS] = {0};
 
     // Allocate memory on the device
     cudaMalloc((void**)&d_histograms, HISTOGRAM * sizeof(int));
     cudaMemset(d_histograms, 0, HISTOGRAM * sizeof(int));  // Initialize histograms to 0
 
-    ////======= KERNEL
+    cudaMalloc((void**)&d_histogram_total, HIST_SEGMENTATIONS * sizeof(int));
+    cudaMemset(d_histograms, 0, HIST_SEGMENTATIONS * sizeof(int));  // Initialize histograms to 0
+
+    ////======= KERNEL 1
 
     // Launch kernel
-    calculateHistogram<<<BLOCKS, THREADS, SEG_SIZE>>>(d_input, d_histograms, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
-
-    ////======= COPY BACK
+    calculateHistogram<<<BLOCKS, THREADS, SEG_SIZE>>>(d_input, d_histograms, d_histogram_total, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
 
     // Copy result back to host
     cudaMemcpy(h_histograms, d_histograms, HISTOGRAM * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_histogram_total, d_histogram_total, HIST_SEGMENTATIONS * sizeof(int), cudaMemcpyDeviceToHost);
 
     ////======= PRINT RESULT
 
@@ -220,6 +225,11 @@ int main() {
             std::cout << h_histograms[i][j] << " ";
         std::cout << std::endl;
     }
+
+    std::cout << "Histogram_total: ";
+      for (int j = 0; j < HIST_SEGMENTATIONS; j++)  
+          std::cout << h_histogram_total[j] << " ";
+      std::cout << std::endl;
 
     ////======= FREE MEMORY
 
