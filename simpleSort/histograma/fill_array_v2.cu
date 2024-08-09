@@ -99,7 +99,17 @@ u_int getMax(u_int* Array, int nElem) {
 
 
 // Debugg function to print an array
-void printArray(u_int* a, int size) {
+void intPrintArray(int* a, int size) {
+    // Print the generated array, do not allow this with arrays of billions
+    for (int i = 0; i < size; i++) {
+        std::cout << a[i] << " ";
+    }
+    std::cout << std::endl;
+}
+
+
+// Debugg function to print an array
+void uintPrintArray(u_int* a, int size) {
     // Print the generated array, do not allow this with arrays of billions
     for (int i = 0; i < size; i++) {
         std::cout << a[i] << " ";
@@ -177,8 +187,70 @@ __global__ void calculateHistogram(const u_int *input, int *histograms, int *his
 
 
 
+// calculates the scan of the global histogram and saves it into the horizontal scan
+__global__ void calculateHorizontalScan(int *histogram_T, int *scan, int segCount) {
+    int threadPosi = threadIdx.x;         // starts as thread ID
+
+    //--
+
+    while(threadPosi < segCount) {
+      // Loop while inside the histogram
+
+      int sum = 0;
+
+      for (int i = threadPosi-1; i >= 0; i--) {
+        // makes the individual sum of every index before this one
+        sum += histogram_T[i];
+      }
+
+      scan[threadPosi] = sum;
+
+      //--
+
+      threadPosi += blockDim.x; // go to the next element
+    }
+
+    //--
+
+    __syncthreads();
+}
+
+
+// calculates the scan of each non-global histogram, saving it in different lines of the vertical scan
+__global__ void calculateVerticalScan(int *histograms, int *Vscan, int segCount, int hist_count) {
+    int posiX = threadIdx.x;         // starts as thread ID
+
+    //--
+
+    while(posiX < segCount) {
+      // Loop while inside the histogram's segments
+
+      int sum = 0;
+
+      for (int posiY = 0; posiY < hist_count; posiY++) {
+        Vscan[posiX + (posiY*segCount)] = sum;
+        sum += histograms[posiX + (posiY*segCount)];
+      }
+
+      //--
+
+      posiX += blockDim.x;
+      // next colum
+    }
+
+    //--
+
+    __syncthreads();
+}
+
+
+
+//---------------------------------------------------------------
+
+
+
 int main() {
-    ////======= ARRAY
+    ////======= INPUT VECTORS
     u_int *d_input;
     u_int* h_input = genRandomArray(ARRAYSIZE);
 
@@ -190,7 +262,7 @@ int main() {
     u_int max = getMax(h_input, ARRAYSIZE);
     u_int binWidth = getBinSize(min, max, HIST_SEGMENTATIONS);
 
-    printArray(h_input, ARRAYSIZE);
+    uintPrintArray(h_input, ARRAYSIZE);
     printSegmentations(min, max, h_input, ARRAYSIZE, HIST_SEGMENTATIONS);
 
     ////======= HISTOGRAM
@@ -207,14 +279,39 @@ int main() {
     cudaMalloc((void**)&d_histogram_total, HIST_SEGMENTATIONS * sizeof(int));
     cudaMemset(d_histograms, 0, HIST_SEGMENTATIONS * sizeof(int));  // Initialize histograms to 0
 
-    ////======= KERNEL 1
+    ////======= SCAN
+
+    int *d_scan;                                    // the scan of the global histogram
+    int *d_verticalScan;                            // the scan of each histogram
+    int h_scan[HIST_SEGMENTATIONS] = {0};
+    int h_verticalScan[BLOCKS][HIST_SEGMENTATIONS] = {0};
+
+    cudaMalloc((void**)&d_scan, HIST_SEGMENTATIONS * sizeof(int));
+    cudaMemset(d_scan, 0, HIST_SEGMENTATIONS * sizeof(int));  // Initialize histograms to 0
+
+    cudaMalloc((void**)&d_verticalScan, HISTOGRAM * sizeof(int));
+    cudaMemset(d_verticalScan, 0, HISTOGRAM * sizeof(int));  // Initialize histograms to 0
+
+    ////=======////======= KERNEL 1 - HIST
 
     // Launch kernel
     calculateHistogram<<<BLOCKS, THREADS, SEG_SIZE>>>(d_input, d_histograms, d_histogram_total, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
 
+    ////=======////======= KERNEL 2 - SCAN
+
+    // Launch kernel horizontal scan
+    calculateHorizontalScan<<<1, THREADS>>>(d_histogram_total, d_scan, HIST_SEGMENTATIONS);
+
+    // Launch kernel vertical scan
+    calculateVerticalScan<<<1, THREADS>>>(d_histograms, d_verticalScan, HIST_SEGMENTATIONS, BLOCKS);
+
+    ////=======////======= COPY BACK
+
     // Copy result back to host
     cudaMemcpy(h_histograms, d_histograms, HISTOGRAM * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(h_histogram_total, d_histogram_total, HIST_SEGMENTATIONS * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_scan, d_scan, HIST_SEGMENTATIONS * sizeof(int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(h_verticalScan, d_verticalScan, HISTOGRAM * sizeof(int), cudaMemcpyDeviceToHost);
 
     ////======= PRINT RESULT
 
@@ -227,15 +324,27 @@ int main() {
     }
 
     std::cout << "Histogram_total: ";
-      for (int j = 0; j < HIST_SEGMENTATIONS; j++)  
-          std::cout << h_histogram_total[j] << " ";
-      std::cout << std::endl;
+    intPrintArray(h_histogram_total, HIST_SEGMENTATIONS);
+
+    std::cout << "Hist Scan: ";
+    intPrintArray(h_scan, HIST_SEGMENTATIONS);
+
+    // Print the histograms
+    for (int i = 0; i < BLOCKS; i++) {
+        std::cout << "Hist Vertical Scan " << i << ": ";
+        for (int j = 0; j < HIST_SEGMENTATIONS; j++)
+            std::cout << h_verticalScan[i][j] << " ";
+        std::cout << std::endl;
+    }
 
     ////======= FREE MEMORY
 
     // Free device memory
     cudaFree(d_input);
     cudaFree(d_histograms);
+    cudaFree(d_histogram_total);
+    cudaFree(d_scan);
+    cudaFree(d_verticalScan);
 
     return 0;
 }
