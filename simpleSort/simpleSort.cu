@@ -10,6 +10,10 @@
 #include <thrust/sort.h>
 #include <thrust/device_vector.h>
 
+#include <assert.h>
+#include <cooperative_groups.h>
+namespace cg = cooperative_groups;
+
 #include "chrono.c"
 
 typedef unsigned int u_int;
@@ -19,6 +23,12 @@ typedef unsigned int u_int;
 #define THREADS 1024     // Number of threads per block
 
 #define BINFIND(min, max, val, binSize, binQtd) (val >= max ? binQtd-1 : (val - min) / binSize)
+
+
+
+//--------------------------------------------------------------------------
+
+
 
 // returns the size of the number group of each bin
 // needs some strange calculations due to precision error
@@ -83,6 +93,11 @@ __global__ void blockAndGlobalHisto(u_int *HH, u_int *Hg, u_int h, u_int *Input,
 
 // calculates the scan of the global histogram and saves it into the horizontal scan
 __global__ void globalHistoScan(u_int *Hg, u_int *SHg, u_int h){
+    // Obtem shared memory para o histogram horizontal
+    extern __shared__ u_int _SHg[];
+
+    //--
+
     int threadPosi = threadIdx.x;         // starts as thread ID
 
     //--
@@ -97,20 +112,36 @@ __global__ void globalHistoScan(u_int *Hg, u_int *SHg, u_int h){
         sum += Hg[i];
       }
 
-      SHg[threadPosi] = sum;
+      _SHg[threadPosi] = sum;
 
       //--
 
       threadPosi += blockDim.x; // go to the next element
     }
 
+    __syncthreads();
+
     //--
+
+    // Passa os resultados da shared memory para o scan
+    // deixar isso a cargo da thread 0 eh mais modular que mandar uma pra uma
+    if (threadIdx.x == 0) {
+      for (int i = 0; i < h; i++) {
+        SHg[i] = _SHg[i];
+      }
+    }
 
     __syncthreads();
 }
 
+
 // calculates the scan of each non-global histogram, saving it in different lines of the vertical scan
-__global__ void verticalScanHH(u_int *Hg, u_int *PSv, u_int h, u_int hist_count){
+__global__ void verticalScanHH(u_int *Hg, u_int *PSv, u_int* PSh, u_int h, u_int hist_count){
+    // Obtem shared memory para o histogram horizontal
+    extern __shared__ u_int _PSv[];
+
+    //--
+    
     int posiX = threadIdx.x;         // starts as thread ID
 
     //--
@@ -121,7 +152,7 @@ __global__ void verticalScanHH(u_int *Hg, u_int *PSv, u_int h, u_int hist_count)
       int sum = 0;
 
       for (int posiY = 0; posiY < hist_count; posiY++) {
-        PSv[posiX + (posiY*h)] = sum;
+        _PSv[posiX + (posiY*h)] = sum + PSh[posiX];
         sum += Hg[posiX + (posiY*h)];
       }
 
@@ -131,42 +162,25 @@ __global__ void verticalScanHH(u_int *Hg, u_int *PSv, u_int h, u_int hist_count)
       // jumps to the next unprocessed column
     }
 
+    __syncthreads();
+
     //--
+
+    // Passa os resultados da shared memory para o scan
+    // deixar isso a cargo da thread 0 eh mais modular que mandar uma pra uma
+    if (threadIdx.x == 0) {
+      for (int i = 0; i < h; i++) {
+        PSv[i] = _PSv[i];
+      }
+    }
 
     __syncthreads();
 }
 
 
-// calculates the sum of a horizontal vector with a vertical vector
-// saves the result inside the matriz
-__global__ void partitionKernel(u_int *V, u_int *SHg, u_int *PSv, u_int h, u_int hist_count){
-  int posiX = threadIdx.x;         // starts as thread ID
-
-  //--
-
-  while (posiX < h) {
-    // Loop while inside the vector horizontal
-
-    // Add value X to the column X
-    for (int posiY = 0; posiY < hist_count; posiY++) {
-      V[posiX + (posiY*h)] = SHg[posiX] + PSv[posiX + (posiY*h)];
-    }
-
-    //--
-
-    posiX += blockDim.x;
-    // jumps to the next unprocessed column
-  }
-
-  //--
-
-  __syncthreads();
-}
-
-
 // Uses the consultation table to separate the groups of numbers according to their bins
 // saves in output device memory
-__global__ void arrayPartitioner(u_int* output, u_int* input, u_int* table, u_int arraySize, u_int segSize, u_int segCount, u_int minVal, u_int maxVal, u_int binWidth) {
+__global__ void PartitionKernel(u_int* output, u_int* input, u_int* table, int arraySize, int segSize, int segCount, u_int minVal, u_int maxVal, u_int binWidth) {
   int posiX = threadIdx.x;
   int blkDiff = (blockIdx.x * segSize);
 
@@ -188,6 +202,76 @@ __global__ void arrayPartitioner(u_int* output, u_int* input, u_int* table, u_in
   //--
 
   __syncthreads();
+}
+
+
+// Combined bitonic merge steps for
+// size > SHARED_SIZE_LIMIT and stride = [1 .. SHARED_SIZE_LIMIT / 2]
+__global__ void bitonicMergeShared(uint *d_DstKey, uint *d_DstVal, uint *d_SrcKey, uint *d_SrcVal, uint arrayLength, uint size, uint dir) {
+  // Handle to thread block group
+  cg::thread_block cta = cg::this_thread_block();
+
+  // Shared memory storage for current subarray
+  __shared__ uint s_key[SHARED_SIZE_LIMIT];
+  __shared__ uint s_val[SHARED_SIZE_LIMIT];
+
+  d_SrcKey += blockIdx.x * SHARED_SIZE_LIMIT + threadIdx.x;
+  d_SrcVal += blockIdx.x * SHARED_SIZE_LIMIT + threadIdx.x;
+  d_DstKey += blockIdx.x * SHARED_SIZE_LIMIT + threadIdx.x;
+  d_DstVal += blockIdx.x * SHARED_SIZE_LIMIT + threadIdx.x;
+  s_key[threadIdx.x + 0] = d_SrcKey[0];
+  s_val[threadIdx.x + 0] = d_SrcVal[0];
+  s_key[threadIdx.x + (SHARED_SIZE_LIMIT / 2)] = d_SrcKey[(SHARED_SIZE_LIMIT / 2)];
+  s_val[threadIdx.x + (SHARED_SIZE_LIMIT / 2)] = d_SrcVal[(SHARED_SIZE_LIMIT / 2)];
+
+  // Bitonic merge
+  uint comparatorI = UMAD(blockIdx.x, blockDim.x, threadIdx.x) & ((arrayLength / 2) - 1);
+  uint ddd = dir ^ ((comparatorI & (size / 2)) != 0); // xor ?????
+
+  for (uint stride = SHARED_SIZE_LIMIT / 2; stride > 0; stride >>= 1) {
+    cg::sync(cta);
+    uint pos = 2 * threadIdx.x - (threadIdx.x & (stride - 1));
+    Comparator(s_key[pos + 0], s_val[pos + 0], s_key[pos + stride], s_val[pos + stride], ddd);
+  }
+
+  cg::sync(cta);
+  d_DstKey[0] = s_key[threadIdx.x + 0];
+  d_DstVal[0] = s_val[threadIdx.x + 0];
+  d_DstKey[(SHARED_SIZE_LIMIT / 2)] = s_key[threadIdx.x + (SHARED_SIZE_LIMIT / 2)];
+  d_DstVal[(SHARED_SIZE_LIMIT / 2)] = s_val[threadIdx.x + (SHARED_SIZE_LIMIT / 2)];
+}
+
+
+//GPU Kernel Implementation of Bitonic Sort
+__global__ void bitonicSortGPU(int* arr, int j, int k)
+{
+    unsigned int i, ij;
+
+    i = threadIdx.x + blockDim.x * blockIdx.x;
+
+    ij = i ^ j;
+
+    if (ij > i)
+    {
+        if ((i & k) == 0)
+        {
+            if (arr[i] > arr[ij])
+            {
+                int temp = arr[i];
+                arr[i] = arr[ij];
+                arr[ij] = temp;
+            }
+        }
+        else
+        {
+            if (arr[i] < arr[ij])
+            {
+                int temp = arr[i];
+                arr[i] = arr[ij];
+                arr[ij] = temp;
+            }
+        }
+    }
 }
 
 
@@ -262,6 +346,10 @@ int main(int argc, char* argv[]) {
   u_int nMax = *std::max_element(Input, Input + nTotalElements);
   u_int binWidth = getBinSize(nMin, nMax, h);
 
+  // Information printing, a pedido do Zola
+  std::cout << "Min: " << nMin << " | Max: " << nMax << std::endl;
+  std::cout << "Largura da Faixa: " << binWidth << std::endl;
+
   // Aloca cores e copia para GPU
   unsigned int *d_Input, *d_Output, *HH, *Hg, *SHg, *PSv, *V;
   cudaMalloc((void**)&d_Input,  nTotalElements  * sizeof(u_int));  // device input data
@@ -279,11 +367,10 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < nR; ++i) {
     chrono_start(&chrono_Hist);
     blockAndGlobalHisto<<<NP*BLOCKS, THREADS, SEG_SIZE>>>(HH, Hg, h, d_Input, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
-    globalHistoScan<<<1, THREADS>>>(Hg, SHg, h);
-    verticalScanHH<<<1, THREADS>>>(HH, PSv, h, NP*BLOCKS);
-    partitionKernel<<<1, THREADS>>>(V, SHg, PSv, h, NP*BLOCKS);
-    arrayPartitioner<<<NP*BLOCKS, THREADS>>>(d_Output, d_Input, V, nTotalElements, SEG_SIZE, h, nMin, nMax, binWidth);
-    // BitonicSort????
+    globalHistoScan<<<1, THREADS, h>>>(Hg, SHg, h);
+    verticalScanHH<<<1, THREADS, h>>>(HH, PSv, SHg, h, NP*BLOCKS);
+    PartitionKernel<<<NP*BLOCKS, THREADS>>>(d_Output, d_Input, V, nTotalElements, SEG_SIZE, h, nMin, nMax, binWidth);
+    bitonicSort();
     chrono_stop(&chrono_Hist);
 
     cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
@@ -295,47 +382,9 @@ int main(int argc, char* argv[]) {
     chrono_stop(&chrono_Thrust);
 
     bool isSorted = thrust::equal(th_Input.begin(), th_Input.end(), th_Output.begin());
-    if (isSorted) { std::cout << "Sort verification: SUCCESS" << std::endl; } 
-    else          { std::cout << "Sort verification: FAILURE" << std::endl; }
+    if (isSorted) { std::cout << "Sort " << i << " verification: SUCCESS" << std::endl; } 
+    else          { std::cout << "Sort " << i << " verification: FAILURE" << std::endl; }
   }
-
-  // ---
-
-  //cudaMemcpy(stage, HH, NP * BLOCKS * h * sizeof(u_int), cudaMemcpyDeviceToHost);
-  //std::cout << "HH: " << std::endl;
-  //for (size_t i=0; i<NP*BLOCKS ;i++){
-  //  for (size_t j=0; j<h ;j++)
-  //    std::cout << stage[i*h + j] << " ";
-  //  std::cout << std::endl;
-  //}
-
-  //cudaMemcpy(stage, Hg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
-  //std::cout << "Hg: " << std::endl;
-  //for (size_t i=0; i<h ;i++)
-  //  std::cout << stage[i] << " ";
-  //std::cout << std::endl;
-
-  //cudaMemcpy(stage, SHg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
-  //std::cout << "SHg: " << std::endl;
-  //for (size_t i=0; i<h ;i++)
-  //  std::cout << stage[i] << " ";
-  //std::cout << std::endl;
-
-  //cudaMemcpy(stage, PSv, NP * BLOCKS * h * sizeof(u_int), cudaMemcpyDeviceToHost);
-  //std::cout << "PSv: " << std::endl;
-  //for (size_t i=0; i<NP*BLOCKS ;i++){
-  //  for (size_t j=0; j<h ;j++)
-  //    std::cout << stage[i*h + j] << " ";
-  //  std::cout << std::endl;
-  //}
-
-  //cudaMemcpy(stage, V, NP * BLOCKS * h * sizeof(u_int), cudaMemcpyDeviceToHost);
-  //std::cout << "V: " << std::endl;
-  //for (size_t i=0; i<NP*BLOCKS ;i++){
-  //  for (size_t j=0; j<h ;j++)
-  //    std::cout << stage[i*h + j] << " ";
-  //  std::cout << std::endl;
-  //}
 
   // ---
 

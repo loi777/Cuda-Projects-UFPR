@@ -247,41 +247,9 @@ __global__ void calculateVerticalScan(int *histograms, int *Vscan, int* Hscan, i
 
 
 
-// calculates the sum of a horizontal vector with a vertical vector
-// saves the result inside the matriz
-__global__ void calculateVectorSum(int* matriz, int* horVec, int* vertVec, int horSize, int vertSize) {
-  int posiX = threadIdx.x;         // starts as thread ID
-
-  //--
-
-  while(posiX < horSize) {
-    // Loop while inside the vector horizontal
-
-    // Add value X to the column X
-    for (int posiY = 0; posiY < vertSize; posiY++) {
-      matriz[posiX + (posiY*horSize)] = horVec[posiX] + vertVec[posiX + (posiY*horSize)];
-    }
-
-    //--
-
-    posiX += blockDim.x;
-    // jumps to the next unprocessed column
-  }
-
-  //--
-
-  __syncthreads();
-}
-
-
-
-//---------------------------------------------------------------
-
-
-
 // Uses the consultation table to separate the groups of numbers according to their bins
 // saves in output device memory
-__global__ void arrayPartitioner(u_int* output, u_int* input, int* table, int arraySize, int segSize, int segCount, u_int minVal, u_int maxVal, u_int binWidth) {
+__global__ void PartitionKernel(u_int* output, u_int* input, int* table, int arraySize, int segSize, int segCount, u_int minVal, u_int maxVal, u_int binWidth) {
   int posiX = threadIdx.x;
   int blkDiff = (blockIdx.x * segSize);
 
@@ -387,7 +355,7 @@ int main() {
     ////=======////======= KERNEL 4 - VECTOR SUM
 
     // Launch kernel that uses the information in vector sum to ordenate
-    arrayPartitioner<<<BLOCKS, THREADS>>>(d_output, d_input, d_verticalScan, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
+    PartitionKernel<<<BLOCKS, THREADS>>>(d_output, d_input, d_verticalScan, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
 
     ////=======////======= KERNEL 6 - Bitonic Sort
 
