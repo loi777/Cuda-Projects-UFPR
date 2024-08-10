@@ -215,7 +215,7 @@ __global__ void calculateHorizontalScan(int *histogram_T, int *scan, int segCoun
 
 
 // calculates the scan of each non-global histogram, saving it in different lines of the vertical scan
-__global__ void calculateVerticalScan(int *histograms, int *Vscan, int segCount, int hist_count) {
+__global__ void calculateVerticalScan(int *histograms, int *Vscan, int* Hscan, int segCount, int hist_count) {
     int posiX = threadIdx.x;         // starts as thread ID
 
     //--
@@ -226,7 +226,7 @@ __global__ void calculateVerticalScan(int *histograms, int *Vscan, int segCount,
       int sum = 0;
 
       for (int posiY = 0; posiY < hist_count; posiY++) {
-        Vscan[posiX + (posiY*segCount)] = sum;
+        Vscan[posiX + (posiY*segCount)] = sum + Hscan[posiX];
         sum += histograms[posiX + (posiY*segCount)];
       }
 
@@ -382,22 +382,16 @@ int main() {
     calculateHorizontalScan<<<1, THREADS>>>(d_histogram_total, d_scan, HIST_SEGMENTATIONS);
 
     // Launch kernel vertical scan
-    calculateVerticalScan<<<1, THREADS>>>(d_histograms, d_verticalScan, HIST_SEGMENTATIONS, BLOCKS);
+    calculateVerticalScan<<<1, THREADS>>>(d_histograms, d_verticalScan, d_scan, HIST_SEGMENTATIONS, BLOCKS);
 
     ////=======////======= KERNEL 4 - VECTOR SUM
 
-    // Launch kernel for vectorial sum
-    calculateVectorSum<<<1, THREADS>>>(d_vecSum, d_scan, d_verticalScan, HIST_SEGMENTATIONS, BLOCKS);
-
-    ////=======////======= KERNEL 5 - PARTITION
-
     // Launch kernel that uses the information in vector sum to ordenate
-    arrayPartitioner<<<BLOCKS, THREADS>>>(d_output, d_input, d_vecSum, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
+    arrayPartitioner<<<BLOCKS, THREADS>>>(d_output, d_input, d_verticalScan, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
 
     ////=======////======= KERNEL 6 - Bitonic Sort
 
     // launch kernel that that sorts the inside of each bin partition
-    
 
     ////=======////======= COPY BACK
 
