@@ -24,29 +24,51 @@ typedef unsigned int u_int;
 
 #define BINFIND(min, max, val, binSize, binQtd) (val >= max ? binQtd-1 : (val - min) / binSize)
 
-// Enables maximum occupancy
-#define SHARED_SIZE_LIMIT 1024U                       // bitonic sort lib
-
-// Map to single instructions on G8x / G9x / G100
-#define UMUL(a, b) __umul24((a), (b))                 // bitonic sort lib
-#define UMAD(a, b, c) (UMUL((a), (b)) + (c))          // bitonic sort lib
 
 
 //--------------------------------------------------------------------------
 
 
 
-__device__ inline void Comparator(uint &keyA, uint &valA, uint &keyB,
-                                  uint &valB, uint dir) {
-  uint t;
+//GPU Kernel Implementation of Bitonic Sort
+__global__ void bitonicSortGPU(u_int* arr, int j, int k)
+{
+    unsigned int i, ij;
 
-  if ((keyA > keyB) == dir) {
-    t = keyA;
-    keyA = keyB;
-    keyB = t;
-    t = valA;
-    valA = valB;
-    valB = t;
+    i = threadIdx.x + blockDim.x * blockIdx.x;
+
+    ij = i ^ j;
+
+    if (ij > i)
+    {
+        if ((i & k) == 0)
+        {
+            if (arr[i] > arr[ij])
+            {
+                int temp = arr[i];
+                arr[i] = arr[ij];
+                arr[ij] = temp;
+            }
+        }
+        else
+        {
+            if (arr[i] < arr[ij])
+            {
+                int temp = arr[i];
+                arr[i] = arr[ij];
+                arr[ij] = temp;
+            }
+        }
+    }
+}
+
+
+void bitonicSortProxy(u_int* d_array, u_int size) {
+for (int k = 2; k <= size; k <<= 1) {
+      for (int j = k >> 1; j > 0; j = j >> 1)
+      {
+          bitonicSortGPU <<<BLOCKS, THREADS>>> (d_array, j, k);
+      }
   }
 }
 
@@ -229,50 +251,6 @@ __global__ void PartitionKernel(u_int* output, u_int* input, u_int* table, int a
 
   __syncthreads();
 }
-
-
-// Combined bitonic merge steps for
-// size > SHARED_SIZE_LIMIT and stride = [1 .. SHARED_SIZE_LIMIT / 2]
-__global__ void bitonicMergeShared(uint *d_DstKey, uint *d_DstVal, uint *d_SrcKey, uint *d_SrcVal, uint arrayLength, uint size, uint dir) {
-  // Handle to thread block group
-  cg::thread_block cta = cg::this_thread_block();
-
-  //--
-
-  // Shared memory storage for current subarray
-  __shared__ uint s_key[SHARED_SIZE_LIMIT];
-  __shared__ uint s_val[SHARED_SIZE_LIMIT];
-
-  d_SrcKey += blockIdx.x * SHARED_SIZE_LIMIT + threadIdx.x;
-  d_SrcVal += blockIdx.x * SHARED_SIZE_LIMIT + threadIdx.x;
-  d_DstKey += blockIdx.x * SHARED_SIZE_LIMIT + threadIdx.x;
-  d_DstVal += blockIdx.x * SHARED_SIZE_LIMIT + threadIdx.x;
-  s_key[threadIdx.x + 0] = d_SrcKey[0];
-  s_val[threadIdx.x + 0] = d_SrcVal[0];
-  s_key[threadIdx.x + (SHARED_SIZE_LIMIT / 2)] = d_SrcKey[(SHARED_SIZE_LIMIT / 2)];
-  s_val[threadIdx.x + (SHARED_SIZE_LIMIT / 2)] = d_SrcVal[(SHARED_SIZE_LIMIT / 2)];
-
-  //--
-
-  // Bitonic merge
-  uint comparatorI = UMAD(blockIdx.x, blockDim.x, threadIdx.x) & ((arrayLength / 2) - 1);
-  uint ddd = dir ^ ((comparatorI & (size / 2)) != 0); // xor
-
-  for (uint stride = SHARED_SIZE_LIMIT / 2; stride > 0; stride >>= 1) {
-    cg::sync(cta);
-    uint pos = 2 * threadIdx.x - (threadIdx.x & (stride - 1));
-    Comparator(s_key[pos + 0], s_val[pos + 0], s_key[pos + stride], s_val[pos + stride], ddd);
-  }
-
-  //--
-
-  cg::sync(cta);
-  d_DstKey[0] = s_key[threadIdx.x + 0];
-  d_DstVal[0] = s_val[threadIdx.x + 0];
-  d_DstKey[(SHARED_SIZE_LIMIT / 2)] = s_key[threadIdx.x + (SHARED_SIZE_LIMIT / 2)];
-  d_DstVal[(SHARED_SIZE_LIMIT / 2)] = s_val[threadIdx.x + (SHARED_SIZE_LIMIT / 2)];
-}
-
 
 
 //---------------------------------------------------------------------------------
