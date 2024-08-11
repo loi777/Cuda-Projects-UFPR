@@ -5,7 +5,7 @@
 typedef unsigned int u_int;
 
 #define BLOCKS 8                            // one block for one histogram
-#define THREADS 5                           // n of threads
+#define THREADS 12                                 // n of threads
 
 #define ARRAYSIZE 18                        // Size of the input array
 #define HIST_SEGMENTATIONS 6                // BINS number
@@ -17,6 +17,8 @@ typedef unsigned int u_int;
 #define BINSTART(min, binSize, i) ((u_int)((binWidth*i)+min))
 #define BINEND(min, binSize, i) ((u_int)(BINSTART(min, binSize, (i+1))-1))
 #define BINFIND(min, max, val, binSize, binQtd) (val >= max ? binQtd-1 : (val - min) / binSize)
+
+
 
 //---------------------------------------------------------------
 
@@ -35,6 +37,83 @@ u_int* genRandomArray(int nElem) {
   }
 
   return array;
+}
+
+
+
+//---------------------------------------------------------------
+
+
+
+//GPU Kernel Implementation of Bitonic Sort
+__global__ void bitonicSortGPU(u_int* arr, int j, int k, u_int start, u_int end) {
+    unsigned int i, ij;
+
+    i = threadIdx.x + blockDim.x * blockIdx.x;
+
+    ij = i ^ j;
+
+    if (i < end-start && ij < end-start) {
+
+      printf("B(%d)T(%d)S(%d)E(%d)  ==  comp [%d]%d < [%d]%d\n", blockIdx.x, threadIdx.x, start, end, i, arr[i+start], ij, arr[ij+start]);
+      if (ij > i) {                   // ij is to the right of i
+        if ((i & k) == 0) {           // if the thread is going forward or back
+          if (arr[i+start] > arr[ij+start]) {     // only invert  
+            printf("B(%d)T(%d)  ==  inverting [%d]%d <-> [%d]%d\n", blockIdx.x, threadIdx.x, i, arr[i+start], ij, arr[ij+start]);
+
+            int temp = arr[i+start];  // arr[i] receives arr[ij]
+            arr[i+start] = arr[ij+start];
+            arr[ij+start] = temp;
+          }
+        } else {
+          if (arr[i+start] < arr[ij+start]) {
+            printf("B(%d)T(%d)  ==  inverting [%d]%d <-> [%d]%d\n", blockIdx.x, threadIdx.x, i, arr[i+start], ij, arr[ij+start]);
+
+            int temp = arr[i+start];  // arr[i] receives arr[ij]
+            arr[i+start] = arr[ij+start];
+            arr[ij+start] = temp;
+          }
+        }
+      }
+
+    }
+
+    __syncthreads();
+}
+
+
+void bitonicSortProxy(u_int* d_array, u_int start, u_int end) {
+  int k = 2;  // nao precisa ordernar grupos de 1
+  while (k <= end-start) {
+
+    for (int j = k >> 1; j > 0; j = j >> 1) {
+        std::cout << "Bitonic Size[" << end-start << "] Start[" << start << "] batch[" << k << "] segments [" << j << "]\n";
+
+        bitonicSortGPU<<<BLOCKS, THREADS>>>(d_array, j, k, start, end);
+    }
+
+    k <<= 1;
+  }
+}
+
+
+
+//---------------------------------------------------------------
+
+
+
+// 0 for wrong | 1 for correct
+int verifySort(u_int* arr, u_int size) {
+  for (int i = 1; i < size; i++) {
+    if (arr[i-1] > arr[i]) {
+      printf("Array wrong at: [%d]%d == [%d]%d\n", i-1, arr[i-1], i, arr[i]);
+      return 0;
+    }
+  }
+  
+  //--
+
+  return 1;
 }
 
 
@@ -282,8 +361,8 @@ __global__ void PartitionKernel(u_int* output, u_int* input, int* table, int arr
 int main() {
     ////======= INPUT VECTORS
     u_int *d_input;
-    //u_int* h_input = genRandomArray(ARRAYSIZE);
-    u_int h_input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
+    u_int* h_input = genRandomArray(ARRAYSIZE);
+    //u_int h_input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
 
     // Allocate memory on the device
     cudaMalloc((void**)&d_input, ARRAYSIZE * sizeof(u_int));
@@ -323,21 +402,13 @@ int main() {
     cudaMalloc((void**)&d_verticalScan, HISTOGRAM * sizeof(int));
     cudaMemset(d_verticalScan, 0, HISTOGRAM * sizeof(int));  // Initialize histograms to 0
 
-    ////======= VECTORIAL SUM
+    ////======= PARTITION array
 
-    int *d_vecSum;                                    // the combination of Horizontal and Vertical Scan
-    int h_vecSum[BLOCKS][HIST_SEGMENTATIONS] = {0};
+    u_int *d_partition;                                    // the final array memory
+    u_int h_partition[ARRAYSIZE] = {0};
 
-    cudaMalloc((void**)&d_vecSum, HISTOGRAM * sizeof(int));
-    cudaMemset(d_vecSum, 0, HISTOGRAM * sizeof(int));  // Initialize histograms to 0
-
-    ////======= OUTPUT array
-
-    u_int *d_output;                                    // the final array memory
-    u_int h_output[ARRAYSIZE] = {0};
-
-    cudaMalloc((void**)&d_output, ARRAYSIZE * sizeof(u_int));
-    cudaMemset(d_output, 0, ARRAYSIZE * sizeof(u_int));  // Initialize histograms to 0
+    cudaMalloc((void**)&d_partition, ARRAYSIZE * sizeof(u_int));
+    cudaMemset(d_partition, 0, ARRAYSIZE * sizeof(u_int));  // Initialize histograms to 0
 
     ////=======////======= KERNEL 1 - HIST
 
@@ -348,6 +419,7 @@ int main() {
 
     // Launch kernel horizontal scan
     calculateHorizontalScan<<<1, THREADS>>>(d_histogram_total, d_scan, HIST_SEGMENTATIONS);
+    cudaMemcpy(h_histogram_total, d_histogram_total, HIST_SEGMENTATIONS * sizeof(int), cudaMemcpyDeviceToHost);
 
     // Launch kernel vertical scan
     calculateVerticalScan<<<1, THREADS>>>(d_histograms, d_verticalScan, d_scan, HIST_SEGMENTATIONS, BLOCKS);
@@ -355,21 +427,32 @@ int main() {
     ////=======////======= KERNEL 4 - VECTOR SUM
 
     // Launch kernel that uses the information in vector sum to ordenate
-    PartitionKernel<<<BLOCKS, THREADS>>>(d_output, d_input, d_verticalScan, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
+    PartitionKernel<<<BLOCKS, THREADS>>>(d_partition, d_input, d_verticalScan, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
+    cudaMemcpy(h_partition, d_partition, ARRAYSIZE * sizeof(u_int), cudaMemcpyDeviceToHost);
+    uintPrintArray(h_partition, ARRAYSIZE); 
 
     ////=======////======= KERNEL 6 - Bitonic Sort
 
     // launch kernel that that sorts the inside of each bin partition
+    u_int start;
+    u_int end = 0;
+    for (int bin = 0; bin < HIST_SEGMENTATIONS; bin++) {
+      // call a bitonic sort for every bin
+      start = end;
+      end += h_histogram_total[bin];
+      
+      //--
+
+      bitonicSortProxy(d_partition, start, end); 
+    }
+    cudaMemcpy(h_partition, d_partition, ARRAYSIZE * sizeof(u_int), cudaMemcpyDeviceToHost);
 
     ////=======////======= COPY BACK
 
     // Copy result back to host
     cudaMemcpy(h_histograms, d_histograms, HISTOGRAM * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_histogram_total, d_histogram_total, HIST_SEGMENTATIONS * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(h_scan, d_scan, HIST_SEGMENTATIONS * sizeof(int), cudaMemcpyDeviceToHost);
     cudaMemcpy(h_verticalScan, d_verticalScan, HISTOGRAM * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_vecSum, d_vecSum, HISTOGRAM * sizeof(int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(h_output, d_output, ARRAYSIZE * sizeof(u_int), cudaMemcpyDeviceToHost);
 
     ////======= PRINT RESULT
 
@@ -395,15 +478,14 @@ int main() {
         std::cout << std::endl;
     }
 
-    // Print the histograms
-    for (int i = 0; i < BLOCKS; i++) {
-        std::cout << "Final vector Sum " << i << ": ";  
-        for (int j = 0; j < HIST_SEGMENTATIONS; j++)
-            std::cout << h_vecSum[i][j] << " ";
-        std::cout << std::endl;
-    }
+    uintPrintArray(h_partition, ARRAYSIZE);
 
-    uintPrintArray(h_output, ARRAYSIZE);
+    ////======= VERIFY
+    if (verifySort(h_partition, ARRAYSIZE)) {
+      printf("\n\nARRAY CORRETO!!!\n\n");
+    } else {
+      printf("\n\nMerda!!!\n\n");
+    }
 
     ////======= FREE MEMORY
 
@@ -413,7 +495,6 @@ int main() {
     cudaFree(d_histogram_total);
     cudaFree(d_scan);
     cudaFree(d_verticalScan);
-    cudaFree(d_vecSum);
 
     return 0;
 }
