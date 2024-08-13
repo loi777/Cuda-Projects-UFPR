@@ -1,7 +1,10 @@
 #include <cuda.h>
 
+#include "simpleSort.cuh"
 #include "histogramM.cuh"
 
+#define BINSTART(min, binSize, i) ((u_int)((binWidth*i)+min))
+#define BINEND(min, binSize, i) ((u_int)(BINSTART(min, binSize, (i+1))-1))
 #define BINFIND(min, max, val, binSize, binQtd) (val >= max ? binQtd-1 : (val - min) / binSize)
 
 
@@ -33,7 +36,7 @@ u_int H_getBinSize(u_int min, u_int max, int segCount) {
 
 // Kernel para calcular histogramas em particoes
 // Cada bloco eh responsavel por um histograma (linha da matriz)
-__global__ void H_blockAndGlobalHisto(u_int *HH, u_int *Hg, u_int h, u_int *Input, u_int nElements, u_int nMin, u_int nMax, u_int segSize, u_int binWidth) {
+__global__ void H_getHistogram(u_int *HH, u_int *Hg, u_int h, u_int *Input, u_int nElements, u_int nMin, u_int nMax, u_int segSize, u_int binWidth) {
     // Alloca shared memory para UM histograma
     extern __shared__ int _HH[];
     if (threadIdx.x < h) { _HH[threadIdx.x] = 0; }
@@ -68,7 +71,7 @@ __global__ void H_blockAndGlobalHisto(u_int *HH, u_int *Hg, u_int h, u_int *Inpu
 
 
 // calculates the scan of the global histogram and saves it into the horizontal scan
-__global__ void H_globalHistoScan(u_int *Hg, u_int *SHg, u_int h) {
+__global__ void H_horizontalScan(u_int *Hg, u_int *SHg, u_int h) {
     // Obtem shared memory para o histogram horizontal
     extern __shared__ u_int _SHg[];
     if (threadIdx.x < h) { _SHg[threadIdx.x] = 0; }
@@ -106,7 +109,7 @@ __global__ void H_globalHistoScan(u_int *Hg, u_int *SHg, u_int h) {
 
 
 // calculates the scan of each non-global histogram, saving it in different lines of the vertical scan
-__global__ void H_verticalScanHH(u_int *HH, u_int *PSv, u_int h) {
+__global__ void H_verticalScan(u_int *HH, u_int *PSv, u_int h) {
     // Obtem shared memory para o histogram horizontal
     extern __shared__ u_int _PSv[];
     if (threadIdx.x < h) { _PSv[threadIdx.x] = 0; }
@@ -146,7 +149,7 @@ __global__ void H_verticalScanHH(u_int *HH, u_int *PSv, u_int h) {
 
 // Uses the consultation table to separate the groups of numbers according to their bins
 // saves in output device memory
-__global__ void H_PartitionKernel(u_int *HH, u_int *SHg, u_int *PSv, u_int h, u_int *Input, u_int *Output, u_int nElements, u_int nMin, u_int nMax, u_int segSize, u_int binWidth) {
+__global__ void H_Partitioner(u_int *HH, u_int *SHg, u_int *PSv, u_int h, u_int *Input, u_int *Output, u_int nElements, u_int nMin, u_int nMax, u_int segSize, u_int binWidth) {
     extern __shared__ u_int _HLsh[];
     if (threadIdx.x < h) { _HLsh[threadIdx.x] = 0; }
     __syncthreads();

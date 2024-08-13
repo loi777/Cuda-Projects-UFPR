@@ -8,7 +8,9 @@
 
 #include <cooperative_groups.h>
 
+#include "simpleSort.cuh"
 #include "histogramM.cuh"
+#include "bitonicM.cuh"
 
 namespace cg = cooperative_groups;
 
@@ -69,6 +71,7 @@ u_int check_parameters(int argc){
 
 //---------------------------------------------------------------------------------
 
+
 void cudaResetVariables(u_int *HH, u_int *Hg, u_int *SHg, u_int *PSv, u_int h){
   cudaMemset(HH,  0, NB * h * sizeof(u_int));
   cudaMemset(PSv, 0, NB * h * sizeof(u_int));
@@ -79,31 +82,57 @@ void cudaResetVariables(u_int *HH, u_int *Hg, u_int *SHg, u_int *PSv, u_int h){
 
 //---------------------------------------------------------------------------------
 
+
+
+void recursionBitonic(u_int* h_array, u_int p_start, u_int p_end) {
+  u_int a_size = (p_end-p_start);
+  u_int nMin = *std::min_element(h_array, h_array + a_size);
+  u_int nMax = *std::max_element(h_array, h_array + a_size);
+}
+
+
+
+//---------------------------------------------------------------------------------
+
+
+
 int main(int argc, char* argv[]) {
   if (check_parameters(argc)) { return EXIT_FAILURE; }
   std::srand(std::time(nullptr));
 
   u_int nTotalElements = std::stoi(argv[1]);                    // Numero de elementos
-  u_int h = std::stoi(argv[2]);                                 // Numero de histogramas
+  u_int h = std::stoi(argv[2]);                                 // Numero de histogramas/recursao
   u_int nR = std::stoi(argv[3]);                                // Numero de chamadas do kernel
   u_int *Input = genRandomArray(nTotalElements);                // Vetor de entrada
-  //u_int nTotalElements = 18;
-  //u_int h = 6;
-  //u_int nR = 4;
-  //u_int Input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
-  u_int *Output = new u_int[nTotalElements];                      // Vetor ordenado
-  u_int *h_SHg = new u_int[h];                      // Vetor ordenado
-  u_int SEG_SIZE = (ceil((float)nTotalElements/((float)NB)));
-  chronometer_t chrono_Thrust, chrono_Hist;
+  u_int *Output = new u_int[nTotalElements];                    // Vetor final
+
+  ////====  GET GLOBAL VARIABLES
 
   // Busca menor valor, maior valor e o comprimento do bin
-  u_int nMin = *std::min_element(Input, Input + nTotalElements);
-  u_int nMax = *std::max_element(Input, Input + nTotalElements);
   u_int binWidth = H_getBinSize(nMin, nMax, h);
+  u_int SEG_SIZE = (ceil((float)nTotalElements/((float)NB)));
+  
+  ////====  CALCULATES PARAMETERS
+
+  chronometer_t chrono_Thrust, chrono_Hist;
+  chrono_reset(&chrono_Thrust);
+  chrono_reset(&chrono_Hist);
+
+  ////====  GET CHRONO VARIABLES
 
   // Information printing, a pedido do Zola
   std::cout << "Min: " << nMin << " | Max: " << nMax << std::endl;
   std::cout << "Largura da Faixa: " << binWidth << std::endl;
+
+  ////====  PRINT DE INFORMAÇÃO
+
+
+
+  ////====  BITONIC RECURSION
+
+
+
+  ////====  THRUST SORT
 
   // Aloca cores e copia para GPU
   u_int *d_Input, *d_Output, *HH, *Hg, *SHg, *PSv;
@@ -115,29 +144,13 @@ int main(int argc, char* argv[]) {
   cudaMalloc((void**)&PSv,      NB * h         * sizeof(u_int));  // device matrix vertical prefix sum
   cudaMemcpy(d_Input, Input, nTotalElements * sizeof(u_int), cudaMemcpyHostToDevice);
 
-  chrono_reset(&chrono_Thrust);
-  chrono_reset(&chrono_Hist);
-
   for (int k = 0; k < nR; k++) {
     cudaResetVariables(HH, Hg, SHg, PSv, h);
     chrono_start(&chrono_Hist);
-    H_blockAndGlobalHisto<<<NB, THREADS, h*sizeof(u_int)>>>(HH, Hg, h, d_Input, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
-    H_globalHistoScan    <<<1,  THREADS, h*sizeof(u_int)>>>(Hg, SHg, h);
-    H_verticalScanHH     <<<NB, THREADS, h*sizeof(u_int)>>>(HH, PSv, h);
-    H_PartitionKernel    <<<NB, THREADS, h*sizeof(u_int)>>>(HH, SHg, PSv, h, d_Input, d_Output, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
-    // launch kernel that that sorts the inside of each bin partition
-    //cudaMemcpy(h_SHg, SHg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
-    //cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
-    //u_int start, end = 0;
-    //for (u_int bin = 1; bin < h; bin++) {
-    //  // call a bitonic sort for every bin
-    //  start = end;
-    //  end = h_SHg[bin];
-    //  thrustSortProxy(Output, start, end);
-    //}
-    //start = end;
-    //end = nTotalElements;
-    //thrustSortProxy(Output, start, end);
+    H_getHistogram        <<<NB, THREADS, h*sizeof(u_int)>>>(HH, Hg, h, d_Input, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
+    H_horizontalScan      <<<1,  THREADS, h*sizeof(u_int)>>>(Hg, SHg, h);
+    H_verticalScan        <<<NB, THREADS, h*sizeof(u_int)>>>(HH, PSv, h);
+    H_Partitioner         <<<NB, THREADS, h*sizeof(u_int)>>>(HH, SHg, PSv, h, d_Input, d_Output, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
     chrono_stop(&chrono_Hist);
 
     verifySort(Input, Output, nTotalElements, &chrono_Thrust, k);
