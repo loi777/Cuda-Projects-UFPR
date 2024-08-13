@@ -84,10 +84,64 @@ void cudaResetVariables(u_int *HH, u_int *Hg, u_int *SHg, u_int *PSv, u_int h){
 
 
 
-void recursionBitonic(u_int* h_array, u_int p_start, u_int p_end) {
-  u_int a_size = (p_end-p_start);
-  u_int nMin = *std::min_element(h_array, h_array + a_size);
-  u_int nMax = *std::max_element(h_array, h_array + a_size);
+// TODO :: APLICAR O P_START NOS ARRAYS PARA MOVIMENTALOS NA POSICAO CERTA
+void recursionBitonic(u_int* h_array, u_int p_start, u_int p_end, u_int histograms) {
+  u_int a_size = (p_end-p_start);                             // obtem o tamanho em elementos dessa particao
+  u_int nMin = *std::min_element(h_array, h_array + a_size);  // obtem o min dessa particao
+  u_int nMax = *std::max_element(h_array, h_array + a_size);  // obtem o max dessa particao
+
+  u_int binWidth = H_getBinSize(nMin, nMax, histograms);      // obtem as ranges dos conjuntos numericos/bins
+  u_int SEG_SIZE = (ceil((float)a_size/((float)NB)));         // obtem o tamanho em elementos 
+
+  //--
+
+  if ((p_end-p_start) < SHAREDLIMIT) {    // esse segmento eh pequeno o suficiente, ordena com bitonic
+
+    //code
+
+  } else {      // esse segmento eh mt grande, particiona com histogramas
+
+    u_int *d_array, *d_partitioned, *d_HH, *d_Hg, *d_horizontalS, *d_verticalS;
+    u_int h_horizontalS[histograms];
+    cudaMalloc((void**)&d_array,        a_size                  * sizeof(u_int));  // device input data
+    cudaMalloc((void**)&d_partitioned,  a_size                  * sizeof(u_int));  // device output partitionec data
+    cudaMalloc((void**)&d_HH,           NB * histograms         * sizeof(u_int));  // device histogram matrix
+    cudaMalloc((void**)&d_Hg,           histograms              * sizeof(u_int));  // device histogram sum
+    cudaMalloc((void**)&d_horizontalS,  histograms              * sizeof(u_int));  // device histogram prefix sum
+    cudaMalloc((void**)&d_verticalS,    NB * histograms         * sizeof(u_int));  // device matrix vertical prefix sum
+
+    cudaMemcpy(d_array, h_array, a_size * sizeof(u_int), cudaMemcpyHostToDevice);  // copia do host o input
+
+    ////==== ALOCA MEMORIA CUDA
+
+    
+    cudaResetVariables(d_HH, d_Hg, d_horizontalS, d_verticalS, histograms);
+    H_getHistogram        <<<NB, THREADS, histograms*sizeof(u_int)>>>(d_HH, d_Hg, histograms, d_array, a_size, nMin, nMax, SEG_SIZE, binWidth);
+    H_horizontalScan      <<<1,  THREADS, histograms*sizeof(u_int)>>>(d_Hg, d_horizontalS, histograms);
+    H_verticalScan        <<<NB, THREADS, histograms*sizeof(u_int)>>>(d_HH, d_verticalS, histograms);
+    H_Partitioner         <<<NB, THREADS, histograms*sizeof(u_int)>>>(d_HH, d_horizontalS, d_verticalS, histograms, d_array, d_partitioned, a_size, nMin, nMax, SEG_SIZE, binWidth);
+    cudaMemcpy(h_array, d_partitioned, a_size * sizeof(u_int), cudaMemcpyDeviceToHost);           // salva no host a particao feita
+    cudaMemcpy(h_horizontalS, d_horizontalS, histograms * sizeof(u_int), cudaMemcpyDeviceToHost); // salva no host o histograma horizontal para saber a posicao das part.
+ 
+
+    ////==== PARTICIONA USANDO HISTOGRAMA
+
+    for (int p_hist = 1; p_hist < histograms; p_hist++) {
+      recursionBitonic(h_array, h_horizontalS[p_hist-1], h_horizontalS[p_hist], histograms);
+    }
+    recursionBitonic(h_array, h_horizontalS[histograms-1], p_end, histograms);  // o ultimo ponto quebra a logica do loop e eh feito fora
+
+    ////==== CONTINUA A RECURSAO
+
+    cudaFree(d_array);
+    cudaFree(d_partitioned);
+    cudaFree(d_HH);
+    cudaFree(d_Hg);
+    cudaFree(d_horizontalS);
+    cudaFree(d_verticalS);
+
+    ////==== LIMPA MEMORIA CUDA
+  }
 }
 
 
@@ -108,12 +162,6 @@ int main(int argc, char* argv[]) {
 
   ////====  GET GLOBAL VARIABLES
 
-  // Busca menor valor, maior valor e o comprimento do bin
-  u_int binWidth = H_getBinSize(nMin, nMax, h);
-  u_int SEG_SIZE = (ceil((float)nTotalElements/((float)NB)));
-  
-  ////====  CALCULATES PARAMETERS
-
   chronometer_t chrono_Thrust, chrono_Hist;
   chrono_reset(&chrono_Thrust);
   chrono_reset(&chrono_Hist);
@@ -121,42 +169,26 @@ int main(int argc, char* argv[]) {
   ////====  GET CHRONO VARIABLES
 
   // Information printing, a pedido do Zola
+  u_int nMin = *std::min_element(Input, Input + nTotalElements);  // obtem o min dessa particao
+  u_int nMax = *std::max_element(Input, Input + nTotalElements);  // obtem o max dessa particao
+  u_int binWidth = H_getBinSize(nMin, nMax, h);                   // obtem as ranges dos conjuntos numericos/bins
+
   std::cout << "Min: " << nMin << " | Max: " << nMax << std::endl;
   std::cout << "Largura da Faixa: " << binWidth << std::endl;
 
   ////====  PRINT DE INFORMAÇÃO
 
-
+  chrono_start(&chrono_Hist);
+  //code
+  chrono_stop(&chrono_Hist);
 
   ////====  BITONIC RECURSION
 
-
+  chrono_start(&chrono_Thrust);
+  //code
+  chrono_stop(&chrono_Thrust);
 
   ////====  THRUST SORT
-
-  // Aloca cores e copia para GPU
-  u_int *d_Input, *d_Output, *HH, *Hg, *SHg, *PSv;
-  cudaMalloc((void**)&d_Input,  nTotalElements * sizeof(u_int));  // device input data
-  cudaMalloc((void**)&d_Output, nTotalElements * sizeof(u_int));  // device input sorted data
-  cudaMalloc((void**)&HH,       NB * h         * sizeof(u_int));  // device histogram matrix
-  cudaMalloc((void**)&Hg,       h              * sizeof(u_int));  // device histogram sum
-  cudaMalloc((void**)&SHg,      h              * sizeof(u_int));  // device histogram prefix sum
-  cudaMalloc((void**)&PSv,      NB * h         * sizeof(u_int));  // device matrix vertical prefix sum
-  cudaMemcpy(d_Input, Input, nTotalElements * sizeof(u_int), cudaMemcpyHostToDevice);
-
-  for (int k = 0; k < nR; k++) {
-    cudaResetVariables(HH, Hg, SHg, PSv, h);
-    chrono_start(&chrono_Hist);
-    H_getHistogram        <<<NB, THREADS, h*sizeof(u_int)>>>(HH, Hg, h, d_Input, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
-    H_horizontalScan      <<<1,  THREADS, h*sizeof(u_int)>>>(Hg, SHg, h);
-    H_verticalScan        <<<NB, THREADS, h*sizeof(u_int)>>>(HH, PSv, h);
-    H_Partitioner         <<<NB, THREADS, h*sizeof(u_int)>>>(HH, SHg, PSv, h, d_Input, d_Output, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
-    chrono_stop(&chrono_Hist);
-
-    verifySort(Input, Output, nTotalElements, &chrono_Thrust, k);
-  }
-
-  // ---
 
   printf("\n----THRUST\n");
   printf("Delta time: " );
@@ -180,17 +212,12 @@ int main(int argc, char* argv[]) {
   printf("Em segundos: %lf\n", reduce_time_seconds - thrust_time_seconds);
   printf("Em porcento: %d\n", (int)((thrust_time_seconds/reduce_time_seconds)*100.0));
 
-  //--
-
-  cudaFree(d_Input);
-  cudaFree(d_Output);
-  cudaFree(HH);
-  cudaFree(Hg);
-  cudaFree(SHg);
-  cudaFree(PSv);
+  ////==== PRINT RESULTADOS
 
   //delete[] Input;
   delete[] Output;
+
+  ////==== FREE MEMORY
 
   return EXIT_SUCCESS;
 }
