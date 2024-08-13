@@ -71,7 +71,7 @@ unsigned int* generatePaddedArray(size_t realSize, size_t nextPowerOfTwo) {
   // Fill the array with random values for the first part
   for (size_t i = 0; i < realSize; ++i) { array[i] = std::rand(); }
   // Fill the rest of the array with the maximum unsigned int value
-  for (size_t i = realSize; i < nextPowerOfTwo; ++i) { array[i] = INT_MAX; }
+  for (size_t i = realSize; i < nextPowerOfTwo; ++i) { array[i] = UINT_MAX; }
 
   return array;
 }

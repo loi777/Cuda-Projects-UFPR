@@ -303,18 +303,18 @@ int main(int argc, char* argv[]) {
     verticalScanHH     <<<NB, THREADS, h*sizeof(u_int)>>>(HH, PSv, h);
     PartitionKernel    <<<NB, THREADS, h*sizeof(u_int)>>>(HH, SHg, PSv, h, d_Input, d_Output, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
     // launch kernel that that sorts the inside of each bin partition
-    cudaMemcpy(h_SHg, SHg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
-    cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
-    u_int start, end = 0;
-    for (u_int bin = 1; bin < h; bin++) {
-      // call a bitonic sort for every bin
-      start = end;
-      end = h_SHg[bin];
-      thrustSortProxy(Output, start, end);
-    }
-    start = end;
-    end = nTotalElements;
-    thrustSortProxy(Output, start, end);
+    //cudaMemcpy(h_SHg, SHg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
+    //cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
+    //u_int start, end = 0;
+    //for (u_int bin = 1; bin < h; bin++) {
+    //  // call a bitonic sort for every bin
+    //  start = end;
+    //  end = h_SHg[bin];
+    //  thrustSortProxy(Output, start, end);
+    //}
+    //start = end;
+    //end = nTotalElements;
+    //thrustSortProxy(Output, start, end);
     chrono_stop(&chrono_Hist);
 
     verifySort(Input, Output, nTotalElements, &chrono_Thrust, k);
