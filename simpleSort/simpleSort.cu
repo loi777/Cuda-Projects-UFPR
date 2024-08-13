@@ -84,7 +84,7 @@ void cudaResetVariables(u_int *HH, u_int *Hg, u_int *SHg, u_int *PSv, u_int h){
 
 
 
-// TODO :: APLICAR O P_START NOS ARRAYS PARA MOVIMENTALOS NA POSICAO CERTA
+// TODO :: APLICAR O P_START NO ARRAY DO HOST PARA MOVIMENTALO NA POSICAO CERTA
 void recursionBitonic(u_int* h_array, u_int p_start, u_int p_end, u_int histograms) {
   u_int a_size = (p_end-p_start);                             // obtem o tamanho em elementos dessa particao
   u_int nMin = *std::min_element(h_array, h_array + a_size);  // obtem o min dessa particao
