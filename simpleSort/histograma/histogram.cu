@@ -49,62 +49,55 @@ u_int* genRandomArray(int nElem) {
 
 
 //GPU Kernel Implementation of Bitonic Sort
-//__global__ void bitonicSortGPU(u_int* arr, int j, int k, u_int start, u_int end) {
-//    unsigned int i, ij;
-//
-//    i = threadIdx.x + blockDim.x * blockIdx.x;
-//
-//    ij = i ^ j;
-//
-//    if (i < end-start && ij < end-start) {
-//
-//      printf("B(%d)T(%d)S(%d)E(%d)  ==  comp [%d]%d < [%d]%d\n", blockIdx.x, threadIdx.x, start, end, i, arr[i+start], ij, arr[ij+start]);
-//      if (ij > i) {                   // ij is to the right of i
-//        if ((i & k) == 0) {           // if the thread is going forward or back
-//          if (arr[i+start] > arr[ij+start]) {     // only invert  
-//            printf("B(%d)T(%d)  ==  inverting [%d]%d <-> [%d]%d\n", blockIdx.x, threadIdx.x, i, arr[i+start], ij, arr[ij+start]);
-//
-//            int temp = arr[i+start];  // arr[i] receives arr[ij]
-//            arr[i+start] = arr[ij+start];
-//            arr[ij+start] = temp;
-//          }
-//        } else {
-//          if (arr[i+start] < arr[ij+start]) {
-//            printf("B(%d)T(%d)  ==  inverting [%d]%d <-> [%d]%d\n", blockIdx.x, threadIdx.x, i, arr[i+start], ij, arr[ij+start]);
-//
-//            int temp = arr[i+start];  // arr[i] receives arr[ij]
-//            arr[i+start] = arr[ij+start];
-//            arr[ij+start] = temp;
-//          }
-//        }
-//      }
-//
-//    }
-//
-//    __syncthreads();
-//}
+__global__ void bitonicSortGPU(u_int* arr, int j, int k, u_int start, u_int end) {
+    unsigned int i, ij;
+
+    i = threadIdx.x + blockDim.x * blockIdx.x;
+
+    ij = i ^ j;
+
+    if (i < end-start && ij < end-start) {
+
+      printf("B(%d)T(%d)S(%d)E(%d)  ==  comp [%d]%d < [%d]%d\n", blockIdx.x, threadIdx.x, start, end, i, arr[i+start], ij, arr[ij+start]);
+      if (ij > i) {                   // ij is to the right of i
+        if ((i & k) == 0) {           // if the thread is going forward or back
+          if (arr[i+start] > arr[ij+start]) {     // only invert  
+            printf("B(%d)T(%d)  ==  inverting [%d]%d <-> [%d]%d\n", blockIdx.x, threadIdx.x, i, arr[i+start], ij, arr[ij+start]);
+
+            int temp = arr[i+start];  // arr[i] receives arr[ij]
+            arr[i+start] = arr[ij+start];
+            arr[ij+start] = temp;
+          }
+        } else {
+          if (arr[i+start] < arr[ij+start]) {
+            printf("B(%d)T(%d)  ==  inverting [%d]%d <-> [%d]%d\n", blockIdx.x, threadIdx.x, i, arr[i+start], ij, arr[ij+start]);
+
+            int temp = arr[i+start];  // arr[i] receives arr[ij]
+            arr[i+start] = arr[ij+start];
+            arr[ij+start] = temp;
+          }
+        }
+      }
+
+    }
+
+    __syncthreads();
+}
+
 
 // Um proxy para a chama do bitonic
-//void bitonicSortProxy(u_int* d_array, u_int start, u_int end) {
-//  int k = 2;  // nao precisa ordernar grupos de 1
-//  while (k <= end-start) {
-//
-//    for (int j = k >> 1; j > 0; j = j >> 1) {
-//        std::cout << "Bitonic Size[" << end-start << "] Start[" << start << "] batch[" << k << "] segments [" << j << "]\n";
-//
-//        bitonicSortGPU<<<BLOCKS, THREADS>>>(d_array, j, k, start, end);
-//    }
-//
-//    k <<= 1;
-//  }
-//}
+void bitonicSortProxy(u_int* d_array, u_int start, u_int end) {
+  int k = 2;  // nao precisa ordernar grupos de 1
+  while (k <= end-start) {
 
-void thrustSortProxy(u_int* h_array, u_int start, u_int end) {
-  thrust::device_vector<u_int> d_vec(&h_array[start], &h_array[start] + (end-start));
+    for (int j = k >> 1; j > 0; j = j >> 1) {
+        std::cout << "Bitonic Size[" << end-start << "] Start[" << start << "] batch[" << k << "] segments [" << j << "]\n";
 
-  thrust::sort(d_vec.begin(), d_vec.end());
+        bitonicSortGPU<<<BLOCKS, THREADS>>>(d_array, j, k, start, end);
+    }
 
-  thrust::copy(d_vec.begin(), d_vec.end(), &h_array[start]);
+    k <<= 1;
+  }
 }
 
 
@@ -440,7 +433,6 @@ int main() {
     // Launch kernel that uses the information in vector sum to ordenate
     PartitionKernel<<<BLOCKS, THREADS>>>(d_partition, d_input, d_verticalScan, ARRAYSIZE, SEG_SIZE, HIST_SEGMENTATIONS, min, max, binWidth);
     cudaMemcpy(h_partition, d_partition, ARRAYSIZE * sizeof(u_int), cudaMemcpyDeviceToHost);
-    uintPrintArray(h_partition, ARRAYSIZE); 
 
     ////=======////======= KERNEL 6 - Bitonic Sort
 
@@ -454,7 +446,7 @@ int main() {
       
       //--
 
-      thrustSortProxy(h_partition, start, end); 
+      bitonicSortProxy(d_partition, start, end); 
     }
 
     ////=======////======= COPY BACK
