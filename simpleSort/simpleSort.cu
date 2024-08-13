@@ -1,82 +1,27 @@
 #include <iostream>
-#include <sys/types.h>
-#include <unistd.h>
-#include <vector>
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
 #include <cuda.h>
-#include <cuda_runtime.h>
 #include <thrust/sort.h>
 #include <thrust/device_vector.h>
 
-#include <assert.h>
 #include <cooperative_groups.h>
+
 namespace cg = cooperative_groups;
 
 #include "chrono.c"
 
 typedef unsigned int u_int;
 
-#define NP 1             // Number of processors
-#define BLOCKS 3         // Number of blocks per processor
+#define NP 2             // Number of processors
+#define BLOCKS 28         // Number of blocks per processor
+#define NB NP*BLOCKS     // Total number of blocks
 #define THREADS 1024     // Number of threads per block
 
 #define BINFIND(min, max, val, binSize, binQtd) (val >= max ? binQtd-1 : (val - min) / binSize)
 
-
-
 //--------------------------------------------------------------------------
-
-
-
-//GPU Kernel Implementation of Bitonic Sort
-__global__ void bitonicSortGPU(u_int* arr, int j, int k)
-{
-    unsigned int i, ij;
-
-    i = threadIdx.x + blockDim.x * blockIdx.x;
-
-    ij = i ^ j;
-
-    if (ij > i)
-    {
-        if ((i & k) == 0)
-        {
-            if (arr[i] > arr[ij])
-            {
-                int temp = arr[i];
-                arr[i] = arr[ij];
-                arr[ij] = temp;
-            }
-        }
-        else
-        {
-            if (arr[i] < arr[ij])
-            {
-                int temp = arr[i];
-                arr[i] = arr[ij];
-                arr[ij] = temp;
-            }
-        }
-    }
-}
-
-
-void bitonicSortProxy(u_int* d_array, u_int size) {
-for (int k = 2; k <= size; k <<= 1) {
-      for (int j = k >> 1; j > 0; j = j >> 1)
-      {
-          bitonicSortGPU <<<BLOCKS, THREADS>>> (d_array, j, k);
-      }
-  }
-}
-
-
-
-//--------------------------------------------------------------------------
-
-
 
 // returns the size of the number group of each bin
 // needs some strange calculations due to precision error
@@ -99,26 +44,24 @@ u_int getBinSize(u_int min, u_int max, int segCount) {
 // Cada bloco eh responsavel por um histograma (linha da matriz)
 __global__ void blockAndGlobalHisto(u_int *HH, u_int *Hg, u_int h, u_int *Input, u_int nElements, u_int nMin, u_int nMax, u_int segSize, u_int binWidth) {
     // Alloca shared memory para UM histograma
-    extern __shared__ int sharedHist[];
-
-    __syncthreads();  // threads will wait for the shared memory to be finished
+    extern __shared__ int _HH[];
+    if (threadIdx.x < h) { _HH[threadIdx.x] = 0; }
+    __syncthreads();
 
     //---
 
     // Inicio da particao no vetor
     int blcStart = (blockIdx.x * segSize);    // bloco positionado na frente daquele que veio anterior a ele
-    int thrPosi = threadIdx.x;              // 1 elemento por thread, starts as exactly the thread.x
+    int thrdPosi = threadIdx.x;              // 1 elemento por thread, starts as exactly the thread.x
 
-    while(thrPosi < segSize && ((blcStart+thrPosi) < nElements)) {
+    while(thrdPosi < segSize && ((blcStart+thrdPosi) < nElements)) {
         // Loop enquanto a thread estiver resolvendo elementos validos dentro do bloco e do array
-
-        u_int val = Input[blcStart + thrPosi];    // get value
+        u_int val = Input[blcStart + thrdPosi];    // get value
         int posi = BINFIND(nMin, nMax, val, binWidth, h);
-        atomicAdd(&sharedHist[posi], 1);  // add to its corresponding segment
+        atomicAdd(&_HH[posi], 1);  // add to its corresponding segment
         atomicAdd(&Hg[posi], 1);  // add to its corresponding segment
 
-        thrPosi += blockDim.x; // thread pula para frente, garantindo que nao ira processar um valor ja processado
-        // saira do bloco quando terminar todos os pixeis dos quais eh responsavel
+        thrdPosi += blockDim.x; // thread pula para frente, garantindo que nao ira processar um valor ja processado
     }
 
     __syncthreads();
@@ -127,14 +70,8 @@ __global__ void blockAndGlobalHisto(u_int *HH, u_int *Hg, u_int h, u_int *Input,
 
     // Passa os resultados da shared memory para matriz
     // deixar isso a cargo da thread 0 eh mais modular que mandar uma pra uma
-    if (threadIdx.x == 0) {
-      for (int i = 0; i < h; i++) {
-        atomicAdd(&HH[(blockIdx.x * h) + i], sharedHist[i]); 
-      }
-    }
-    // Y: (blockIdx.x * segCount)
-    // X: threadIdx.x
-
+    if (threadIdx.x < h)
+      atomicAdd(&HH[(blockIdx.x * h) + threadIdx.x], _HH[threadIdx.x]);
     __syncthreads();
 }
 
@@ -143,28 +80,26 @@ __global__ void blockAndGlobalHisto(u_int *HH, u_int *Hg, u_int h, u_int *Input,
 __global__ void globalHistoScan(u_int *Hg, u_int *SHg, u_int h){
     // Obtem shared memory para o histogram horizontal
     extern __shared__ u_int _SHg[];
+    if (threadIdx.x < h) { _SHg[threadIdx.x] = 0; }
+    __syncthreads();
 
     //--
 
-    int threadPosi = threadIdx.x;         // starts as thread ID
+    u_int thrdPosi = threadIdx.x;         // starts as thread ID
 
     //--
 
-    while(threadPosi < h) {
+    while (thrdPosi < h) {
       // Loop while inside the histogram
-
-      int sum = 0;
-
-      for (int i = threadPosi-1; i >= 0; i--) {
-        // makes the individual sum of every index before this one
-        sum += Hg[i];
+      u_int sum = 0;
+      for (int i = thrdPosi-1; i >= 0; i--) {
+        sum += Hg[i]; // makes the individual sum of every index before this one
       }
-
-      _SHg[threadPosi] = sum;
+      _SHg[thrdPosi] = sum;
 
       //--
 
-      threadPosi += blockDim.x; // go to the next element
+      thrdPosi += blockDim.x; // go to the next element
     }
 
     __syncthreads();
@@ -173,83 +108,89 @@ __global__ void globalHistoScan(u_int *Hg, u_int *SHg, u_int h){
 
     // Passa os resultados da shared memory para o scan
     // deixar isso a cargo da thread 0 eh mais modular que mandar uma pra uma
-    if (threadIdx.x == 0) {
-      for (int i = 0; i < h; i++) {
-        SHg[i] = _SHg[i];
-      }
-    }
-
+    if (threadIdx.x < h)
+      SHg[threadIdx.x] = _SHg[threadIdx.x];
     __syncthreads();
 }
 
 
 // calculates the scan of each non-global histogram, saving it in different lines of the vertical scan
-__global__ void verticalScanHH(u_int *Hg, u_int *PSv, u_int* PSh, u_int h, u_int hist_count){
+__global__ void verticalScanHH(u_int *HH, u_int *PSv, u_int h){
     // Obtem shared memory para o histogram horizontal
     extern __shared__ u_int _PSv[];
+    if (threadIdx.x < h) { _PSv[threadIdx.x] = 0; }
+    __syncthreads();
 
     //--
-    
-    int posiX = threadIdx.x;         // starts as thread ID
+
+    u_int thrdPosi = threadIdx.x;     // Thread por coluna
 
     //--
 
-    while(posiX < h) {
-      // Loop while inside the histogram's segments
-
+    while (thrdPosi < h) {
       int sum = 0;
-
-      for (int posiY = 0; posiY < hist_count; posiY++) {
-        _PSv[posiX + (posiY*h)] = sum + PSh[posiX];
-        sum += Hg[posiX + (posiY*h)];
+      for (int i=blockIdx.x-1; i>=0; i--){
+        sum += HH[i*h + thrdPosi];
       }
+      _PSv[thrdPosi] = sum;
 
-      //--
-
-      posiX += blockDim.x;
-      // jumps to the next unprocessed column
+      thrdPosi += blockDim.x; // go to the next element
     }
-
     __syncthreads();
 
     //--
 
     // Passa os resultados da shared memory para o scan
     // deixar isso a cargo da thread 0 eh mais modular que mandar uma pra uma
-    if (threadIdx.x == 0) {
-      for (int i = 0; i < h; i++) {
-        PSv[i] = _PSv[i];
-      }
-    }
-
+    if (threadIdx.x < h)
+      PSv[blockIdx.x*h + threadIdx.x] = _PSv[threadIdx.x];
     __syncthreads();
 }
 
 
 // Uses the consultation table to separate the groups of numbers according to their bins
 // saves in output device memory
-__global__ void PartitionKernel(u_int* output, u_int* input, u_int* table, int arraySize, int segSize, int segCount, u_int minVal, u_int maxVal, u_int binWidth) {
-  int posiX = threadIdx.x;
-  int blkDiff = (blockIdx.x * segSize);
+__global__ void PartitionKernel(u_int *HH, u_int *SHg, u_int *PSv, u_int h, u_int *Input, u_int *Output, u_int nElements, u_int nMin, u_int nMax, u_int segSize, u_int binWidth) {
+    extern __shared__ u_int _HLsh[];
+    if (threadIdx.x < h) { _HLsh[threadIdx.x] = 0; }
+    __syncthreads();
 
-  //--
+    // Thread ID and total threads
+    u_int thrdPosi = threadIdx.x; 
+    u_int totalThreads = blockDim.x;
 
-  while((posiX < segSize) && ((posiX+blkDiff) < arraySize)) {
-    // while inside the block scope and inside the array
+    // Calculate the indices for shared memory
+    while (thrdPosi < h) {
+        _HLsh[thrdPosi] = SHg[thrdPosi] + PSv[blockIdx.x * h + thrdPosi];
+        thrdPosi += totalThreads;
+    }
+    __syncthreads();
 
-    //                     X                                                                Y
-    int tableID = BINFIND(minVal, maxVal, input[posiX+blkDiff], binWidth, segCount) + (blockIdx.x*segCount);
-    int posi = atomicAdd(&table[tableID], 1);
+    // Reset thread position for the next phase
+    thrdPosi = threadIdx.x;
 
-    output[posi] = input[posiX+blkDiff];
+    // Process elements in the segment
+    while (thrdPosi < segSize && ((blockIdx.x * segSize + thrdPosi) < nElements)) {
+        u_int val = Input[blockIdx.x * segSize + thrdPosi]; 
+        u_int posi = BINFIND(nMin, nMax, val, binWidth, h);
 
-    // jumps to next unprocessed element
-    posiX += blockDim.x;
-  }
+        // Atomic operation to update the output array
+        u_int index = atomicAdd(&_HLsh[posi], 1);    // Get the current position and increment it atomically
+        if (index < nElements)
+          Output[index] = val;                         // Write the value to the output array
 
-  //--
+        thrdPosi += totalThreads;
+    }
+    __syncthreads();
+}
 
-  __syncthreads();
+
+void thrustSortProxy(u_int* h_array, u_int start, u_int end) {
+  thrust::device_vector<u_int> d_vec(&h_array[start], &h_array[start] + (end-start));
+
+  thrust::sort(d_vec.begin(), d_vec.end());
+
+  thrust::copy(d_vec.begin(), d_vec.end(), &h_array[start]);
 }
 
 
@@ -258,14 +199,17 @@ __global__ void PartitionKernel(u_int* output, u_int* input, u_int* table, int a
 
 //cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
 //verifySort(Input, Output, nTotalElements);
-void verifySort(u_int *Input, u_int *Output, u_int nElements) {
-  thrust::device_vector<u_int> d_Input(Input, Input + nElements);
-  thrust::device_vector<u_int> d_Output(Output, Output + nElements);
-  thrust::sort(d_Input.begin(), d_Input.end());
+void verifySort(u_int *Input, u_int *Output, u_int nElements, chronometer_t *chrono_Thrust, u_int k) {
+  thrust::device_vector<u_int> th_Input(Input, Input + nElements);
+  thrust::device_vector<u_int> th_Output(Output, Output + nElements);
+  
+  chrono_start(chrono_Thrust);
+  thrust::sort(th_Input.begin(), th_Input.end());
+  chrono_stop(chrono_Thrust);
 
-  bool isSorted = thrust::equal(d_Input.begin(), d_Input.end(), d_Output.begin());
-  if (isSorted) { std::cout << "Sort verification: SUCCESS" << std::endl; } 
-  else          { std::cout << "Sort verification: FAILURE" << std::endl; }
+  bool isSorted = thrust::equal(th_Input.begin(), th_Input.end(), th_Output.begin());
+  if (isSorted) { std::cout << "Sort " << k << " verification: SUCCESS" << std::endl; } 
+  else          { std::cout << "Sort " << k << " verification: FAILURE" << std::endl; }
 }
 
 
@@ -302,21 +246,31 @@ u_int check_parameters(int argc){
 
 //---------------------------------------------------------------------------------
 
+void cudaResetVariables(u_int *HH, u_int *Hg, u_int *SHg, u_int *PSv, u_int h){
+  cudaMemset(HH,  0, NB * h * sizeof(u_int));
+  cudaMemset(PSv, 0, NB * h * sizeof(u_int));
+  cudaMemset(Hg,  0, h * sizeof(u_int));
+  cudaMemset(SHg, 0, h * sizeof(u_int));
+}
+
+
+//---------------------------------------------------------------------------------
 
 int main(int argc, char* argv[]) {
   if (check_parameters(argc)) { return EXIT_FAILURE; }
   std::srand(std::time(nullptr));
 
-  //u_int nTotalElements = std::stoi(argv[1]);                    // Numero de elementos
-  //u_int h = std::stoi(argv[2]);                                 // Numero de histogramas
-  //u_int nR = std::stoi(argv[3]);                                // Numero de chamadas do kernel
-  //u_int *Input = genRandomArray(nTotalElements);                // Vetor de entrada
-  u_int nTotalElements = 18;
-  u_int h = 6;
-  u_int nR = 1;
-  u_int Input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
+  u_int nTotalElements = std::stoi(argv[1]);                    // Numero de elementos
+  u_int h = std::stoi(argv[2]);                                 // Numero de histogramas
+  u_int nR = std::stoi(argv[3]);                                // Numero de chamadas do kernel
+  u_int *Input = genRandomArray(nTotalElements);                // Vetor de entrada
+  //u_int nTotalElements = 18;
+  //u_int h = 6;
+  //u_int nR = 4;
+  //u_int Input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
   u_int *Output = new u_int[nTotalElements];                      // Vetor ordenado
-  u_int SEG_SIZE = (ceil((float)nTotalElements/((float)NP*(float)BLOCKS)));
+  u_int *h_SHg = new u_int[h];                      // Vetor ordenado
+  u_int SEG_SIZE = (ceil((float)nTotalElements/((float)NB)));
   chronometer_t chrono_Thrust, chrono_Hist;
 
   // Busca menor valor, maior valor e o comprimento do bin
@@ -329,46 +283,48 @@ int main(int argc, char* argv[]) {
   std::cout << "Largura da Faixa: " << binWidth << std::endl;
 
   // Aloca cores e copia para GPU
-  unsigned int *d_Input, *d_Output, *HH, *Hg, *SHg, *PSv, *V;
-  cudaMalloc((void**)&d_Input,  nTotalElements  * sizeof(u_int));  // device input data
-  cudaMalloc((void**)&d_Output, nTotalElements  * sizeof(u_int));  // device input sorted data
-  cudaMalloc((void**)&HH,       NP * BLOCKS * h * sizeof(u_int));  // device histogram matrix
-  cudaMalloc((void**)&Hg,       h               * sizeof(u_int));  // device histogram sum
-  cudaMalloc((void**)&SHg,      h               * sizeof(u_int));  // device histogram prefix sum
-  cudaMalloc((void**)&PSv,      NP * BLOCKS * h * sizeof(u_int));  // device matrix vertical prefix sum
-  cudaMalloc((void**)&V,        NP * BLOCKS * h * sizeof(u_int));
+  u_int *d_Input, *d_Output, *HH, *Hg, *SHg, *PSv;
+  cudaMalloc((void**)&d_Input,  nTotalElements * sizeof(u_int));  // device input data
+  cudaMalloc((void**)&d_Output, nTotalElements * sizeof(u_int));  // device input sorted data
+  cudaMalloc((void**)&HH,       NB * h         * sizeof(u_int));  // device histogram matrix
+  cudaMalloc((void**)&Hg,       h              * sizeof(u_int));  // device histogram sum
+  cudaMalloc((void**)&SHg,      h              * sizeof(u_int));  // device histogram prefix sum
+  cudaMalloc((void**)&PSv,      NB * h         * sizeof(u_int));  // device matrix vertical prefix sum
   cudaMemcpy(d_Input, Input, nTotalElements * sizeof(u_int), cudaMemcpyHostToDevice);
 
   chrono_reset(&chrono_Thrust);
   chrono_reset(&chrono_Hist);
 
-  for (int i = 0; i < nR; ++i) {
+  for (int k = 0; k < nR; k++) {
+    cudaResetVariables(HH, Hg, SHg, PSv, h);
     chrono_start(&chrono_Hist);
-    blockAndGlobalHisto<<<NP*BLOCKS, THREADS, SEG_SIZE>>>(HH, Hg, h, d_Input, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
-    globalHistoScan<<<1, THREADS, h>>>(Hg, SHg, h);
-    verticalScanHH<<<1, THREADS, h>>>(HH, PSv, SHg, h, NP*BLOCKS);
-    PartitionKernel<<<NP*BLOCKS, THREADS>>>(d_Output, d_Input, V, nTotalElements, SEG_SIZE, h, nMin, nMax, binWidth);
-    bitonicSort();
+    blockAndGlobalHisto<<<NB, THREADS, h*sizeof(u_int)>>>(HH, Hg, h, d_Input, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
+    globalHistoScan    <<<1,  THREADS, h*sizeof(u_int)>>>(Hg, SHg, h);
+    verticalScanHH     <<<NB, THREADS, h*sizeof(u_int)>>>(HH, PSv, h);
+    PartitionKernel    <<<NB, THREADS, h*sizeof(u_int)>>>(HH, SHg, PSv, h, d_Input, d_Output, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
+    // launch kernel that that sorts the inside of each bin partition
+    cudaMemcpy(h_SHg, SHg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
+    u_int start, end = 0;
+    for (u_int bin = 1; bin < h; bin++) {
+      // call a bitonic sort for every bin
+      start = end;
+      end = h_SHg[bin];
+      thrustSortProxy(Output, start, end);
+    }
+    start = end;
+    end = nTotalElements;
+    thrustSortProxy(Output, start, end);
     chrono_stop(&chrono_Hist);
 
-    cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
-    thrust::device_vector<u_int> th_Input(Input, Input + nTotalElements);
-    thrust::device_vector<u_int> th_Output(Output, Output + nTotalElements);
-    
-    chrono_start(&chrono_Thrust);
-    thrust::sort(th_Input.begin(), th_Input.end());
-    chrono_stop(&chrono_Thrust);
-
-    bool isSorted = thrust::equal(th_Input.begin(), th_Input.end(), th_Output.begin());
-    if (isSorted) { std::cout << "Sort " << i << " verification: SUCCESS" << std::endl; } 
-    else          { std::cout << "Sort " << i << " verification: FAILURE" << std::endl; }
+    verifySort(Input, Output, nTotalElements, &chrono_Thrust, k);
   }
 
   // ---
 
   printf("\n----THRUST\n");
   printf("Delta time: " );
-  chrono_report_TimeInLoop( &chrono_Thrust, (char *)"thrust max_element", nR);
+  chrono_report_TimeInLoop( &chrono_Thrust, (char *)"thrust sort", nR);
 
   double thrust_time_seconds = (double) chrono_gettotal( &chrono_Thrust )/((double)1000*1000*1000);
   printf( "Tempo em segundos: %lf s\n", thrust_time_seconds );
@@ -378,7 +334,7 @@ int main(int argc, char* argv[]) {
 
   printf("\n----HISTOGRAM\n");
   printf("Delta time: " );
-  chrono_report_TimeInLoop( &chrono_Hist, (char *)"reduceMax_persist", nR);
+  chrono_report_TimeInLoop( &chrono_Hist, (char *)"histogram sort", nR);
 
   double reduce_time_seconds = (double) chrono_gettotal( &chrono_Hist )/((double)1000*1000*1000);
   printf( "Tempo em segundos: %lf s\n", reduce_time_seconds );
@@ -396,7 +352,6 @@ int main(int argc, char* argv[]) {
   cudaFree(Hg);
   cudaFree(SHg);
   cudaFree(PSv);
-  cudaFree(V);
 
   //delete[] Input;
   delete[] Output;
