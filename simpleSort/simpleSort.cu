@@ -84,6 +84,8 @@ void cudaResetVariables(u_int *HH, u_int *Hg, u_int *SHg, u_int *PSv, u_int h){
 
 
 
+// CPU level recursion function that uses histogram to constantly reduce the size of the array
+// when this goes below the shared memory limit then bitonic sort is used to sort the array.
 // TODO :: APLICAR O P_START NO ARRAY DO HOST PARA MOVIMENTALO NA POSICAO CERTA
 void recursionBitonic(u_int* h_array, u_int p_start, u_int p_end, u_int histograms) {
   u_int a_size = (p_end-p_start);                             // obtem o tamanho em elementos dessa particao
@@ -169,6 +171,7 @@ int main(int argc, char* argv[]) {
   ////====  GET CHRONO VARIABLES
 
   // Information printing, a pedido do Zola
+  // variaveis apenas usadas nesse print
   u_int nMin = *std::min_element(Input, Input + nTotalElements);  // obtem o min dessa particao
   u_int nMax = *std::max_element(Input, Input + nTotalElements);  // obtem o max dessa particao
   u_int binWidth = H_getBinSize(nMin, nMax, h);                   // obtem as ranges dos conjuntos numericos/bins
@@ -179,7 +182,9 @@ int main(int argc, char* argv[]) {
   ////====  PRINT DE INFORMAÇÃO
 
   chrono_start(&chrono_Hist);
-  //code
+  recursionBitonic(Input, 0, nTotalElements, h);
+  // OBSERVACAO, ESSA FUNC JA RETORNA O INPUT COMO ORDENADO
+  // EH MELHOR USAR ELE DIRETO DOQ TENTAR REPASSAR PARA UM VETOR OUTPUT
   chrono_stop(&chrono_Hist);
 
   ////====  BITONIC RECURSION
