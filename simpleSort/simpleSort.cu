@@ -19,23 +19,37 @@ namespace cg = cooperative_groups;
 typedef unsigned int u_int;
 
 
+
 //---------------------------------------------------------------------------------
 
 
-//cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
-//verifySort(Input, Output, nTotalElements);
-void verifySort(u_int *Input, u_int *Output, u_int nElements, chronometer_t *chrono_Thrust, u_int k) {
-  thrust::device_vector<u_int> th_Input(Input, Input + nElements);
-  thrust::device_vector<u_int> th_Output(Output, Output + nElements);
-  
-  chrono_start(chrono_Thrust);
-  thrust::sort(th_Input.begin(), th_Input.end());
-  chrono_stop(chrono_Thrust);
 
-  bool isSorted = thrust::equal(th_Input.begin(), th_Input.end(), th_Output.begin());
-  if (isSorted) { std::cout << "Sort " << k << " verification: SUCCESS" << std::endl; } 
-  else          { std::cout << "Sort " << k << " verification: FAILURE" << std::endl; }
+__global__ void verifySort(u_int* d_arr1, u_int* d_arr2, u_int size) {
+  u_int posi = (blockDim.x*blockIdx.x) + threadIdx.x;
+
+  while(posi < size) {
+    if (d_arr1[posi] != d_arr2[posi]) {
+      printf("FALHA NA VERIFICACAO!!!\n     falores encontrados: [%d]%d [%d]%d", posi, d_arr1[posi], posi, d_arr2[posi]);
+    }
+
+    posi += blockDim.x;
+  }
 }
+
+
+void verifySortProxy(u_int* h_arr1, u_int* h_arr2, u_int size) {
+  u_int *d_arr1, *d_arr2;
+  cudaMalloc((void**)&d_arr1, sizeof(u_int) * size);
+  cudaMalloc((void**)&d_arr2, sizeof(u_int) * size);
+
+  //--
+  verifySort<<<1, THREADS >>>(d_arr1, d_arr2, size);
+  //--
+
+  cudaFree(d_arr1);
+  cudaFree(d_arr2);
+}
+
 
 
 //---------------------------------------------------------------------------------
@@ -86,20 +100,19 @@ void cudaResetVariables(u_int *HH, u_int *Hg, u_int *SHg, u_int *PSv, u_int h){
 
 // CPU level recursion function that uses histogram to constantly reduce the size of the array
 // when this goes below the shared memory limit then bitonic sort is used to sort the array.
-// TODO :: APLICAR O P_START NO ARRAY DO HOST PARA MOVIMENTALO NA POSICAO CERTA
 void recursionBitonic(u_int* d_array, u_int p_start, u_int p_end, u_int histograms) {
   u_int a_size = (p_end-p_start);                             // obtem o tamanho em elementos dessa particao
-  u_int nMin = H_getMin(d_array, p_end-p_start);  // obtem o min dessa particao
-  u_int nMax = H_getMax(d_array, p_end-p_start);  // obtem o max dessa particao
+  u_int h_min, h_max;
+  H_getDeviceMinMax(&d_array[p_start], p_end-p_start, &h_min, &h_max);
 
-  u_int binWidth = H_getBinSize(nMin, nMax, histograms);      // obtem as ranges dos conjuntos numericos/bins
+  u_int binWidth = H_getBinSize(h_min, h_max, histograms);      // obtem as ranges dos conjuntos numericos/bins
   u_int SEG_SIZE = (ceil((float)a_size/((float)NB)));         // obtem o tamanho em elementos 
 
   //--
 
   if ((p_end-p_start) < POW2LIMIT) {    // esse segmento eh pequeno o suficiente, ordena com bitonic
 
-    B_bitonicProxy();
+    B_bitonicProxy(&d_array[p_start], a_size);
 
   } else {      // esse segmento eh mt grande, particiona com histogramas
 
@@ -115,10 +128,10 @@ void recursionBitonic(u_int* d_array, u_int p_start, u_int p_end, u_int histogra
 
     
     cudaResetVariables(d_HH, d_Hg, d_horizontalS, d_verticalS, histograms);
-    H_getHistogram        <<<NB, THREADS, histograms*sizeof(u_int)>>>(d_HH, d_Hg, histograms, d_array, a_size, nMin, nMax, SEG_SIZE, binWidth);
+    H_getHistogram        <<<NB, THREADS, histograms*sizeof(u_int)>>>(d_HH, d_Hg, histograms, &d_array[p_start], a_size, h_min, h_max, SEG_SIZE, binWidth);
     H_horizontalScan      <<<1,  THREADS, histograms*sizeof(u_int)>>>(d_Hg, d_horizontalS, histograms);
     H_verticalScan        <<<NB, THREADS, histograms*sizeof(u_int)>>>(d_HH, d_verticalS, histograms);
-    H_Partitioner         <<<NB, THREADS, histograms*sizeof(u_int)>>>(d_HH, d_horizontalS, d_verticalS, histograms, d_array, d_partitioned, a_size, nMin, nMax, SEG_SIZE, binWidth);
+    H_Partitioner         <<<NB, THREADS, histograms*sizeof(u_int)>>>(d_HH, d_horizontalS, d_verticalS, histograms, &d_array[p_start], d_partitioned, a_size, h_min, h_max, SEG_SIZE, binWidth);
     cudaMemcpy(h_horizontalS, d_horizontalS, histograms * sizeof(u_int), cudaMemcpyDeviceToHost); // salva no host o histograma horizontal para saber a posicao das part.
  
 
@@ -155,13 +168,13 @@ int main(int argc, char* argv[]) {
   u_int h = std::stoi(argv[2]);                                 // Numero de histogramas/recursao
   u_int nR = std::stoi(argv[3]);                                // Numero de chamadas do kernel
   u_int *h_Input = genRandomArray(nTotalElements);              // Vetor de entrada
-  u_int *h_Output = new u_int[nTotalElements];                  // Vetor final
+  u_int *h_Output_bi = new u_int[nTotalElements];                  // Vetor final BITONIC
+  u_int *h_Output_th = new u_int[nTotalElements];                  // Vetor final THRUST
 
   ////====  GET GLOBAL VARIABLES
 
-  u_int *d_input, *d_output;
+  u_int *d_input;
   cudaMalloc((void**)&d_input, nTotalElements * sizeof(u_int));   // device input data
-  cudaMalloc((void**)&d_output, nTotalElements * sizeof(u_int));  // device output data
 
   ////====  GET CUDA MEMORY
 
@@ -182,19 +195,29 @@ int main(int argc, char* argv[]) {
 
   ////====  PRINT DE INFORMAÇÃO
 
+  cudaMemcpy(d_input, h_Input, nTotalElements * sizeof(u_int), cudaMemcpyHostToDevice);     // get input array to device
+  
   chrono_start(&chrono_Hist);
-  recursionBitonic(d_input, 0, nTotalElements, h);
-  // OBSERVACAO, ESSA FUNC JA RETORNA O INPUT COMO ORDENADO
-  // EH MELHOR USAR ELE DIRETO DOQ TENTAR REPASSAR PARA UM VETOR OUTPUT
+  recursionBitonic(d_input, 0, nTotalElements, h);                                          // Begin bitonic sort
   chrono_stop(&chrono_Hist);
+
+  cudaMemcpy(h_Output_bi, d_input, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost); // get output array to host
 
   ////====  BITONIC RECURSION
 
+  thrust::device_vector<u_int> d_vec(h_Input, h_Input + nTotalElements);  // get input array to thrust
+
   chrono_start(&chrono_Thrust);
-  //code
+  thrust::sort(d_vec.begin(), d_vec.end());                               // Begin thrust sort
   chrono_stop(&chrono_Thrust);
 
+  thrust::copy(d_vec.begin(), d_vec.end(), h_Output_th);                  // get output array to host
+
   ////====  THRUST SORT
+
+  verifySortProxy(h_Output_th, h_Output_bi, nTotalElements);
+
+  ////====  VERIFICA SORT
 
   printf("\n----THRUST\n");
   printf("Delta time: " );
@@ -221,10 +244,6 @@ int main(int argc, char* argv[]) {
   ////==== PRINT RESULTADOS
 
   cudaFree(d_input);
-  cudaFree(d_output);
-
-  //delete[] Input;
-  delete[] h_Output;
 
   ////==== FREE MEMORY
 

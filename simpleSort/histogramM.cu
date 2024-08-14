@@ -15,7 +15,7 @@
 
 // returns the size of the number group of each bin
 // needs some strange calculations due to precision error
-u_int H_getBinSize(u_int min, u_int max, int segCount) {
+u_int H_getBinSize(u_int min, u_int max, u_int segCount) {
   u_int binSize = max - min;
   if ((binSize % segCount) == 0) {
     // complete division
@@ -35,45 +35,53 @@ u_int H_getBinSize(u_int min, u_int max, int segCount) {
 
 
 
+// FOR INTERNAL USE
 // return the min of a device array
-__global__ u_int H_getMin(u_int* d_array, u_int size) {
-    __shared__ int min;
-
+__global__ void getMin(u_int* d_array, u_int size, u_int* d_min) {
     u_int posi = (blockIdx.x*blockDim.x) + threadIdx.x;
 
     while(posi < size) {
 
-        min = atomicMin(&d_array[posi], min);
+        *d_min = atomicMin(&d_array[posi], *d_min);
 
         posi += blockDim.x;
     }
 
     __syncthreads();
-
-    //--
-
-    return min;
 }
 
 
+// FOR INTERNAL USE
 // return the max of a device array
-__global__ u_int H_getMax(u_int* d_array, u_int size) {
-    __shared__ int max;
-
+__global__ void getMax(u_int* d_array, u_int size, u_int* d_max) {
     u_int posi = (blockIdx.x*blockDim.x) + threadIdx.x;
 
     while(posi < size) {
 
-        max = atomicMax(&d_array[posi], max);
-
+        *d_max = atomicMax(&d_array[posi], *d_max);
+        
         posi += blockDim.x;
     }
 
     __syncthreads();
+}
+
+
+// The um array do device, obtem o minimo e o maximo
+void H_getDeviceMinMax(u_int* d_array, u_int size, u_int* h_min, u_int* h_max) {
+    u_int *d_min, *d_max;
+    cudaMalloc((void**)&d_min, sizeof(u_int));  // device min
+    cudaMalloc((void**)&d_max, sizeof(u_int));  // device max
 
     //--
 
-    return max;
+    getMax<<<1, THREADS>>>(d_array, size, d_max);
+    getMin<<<1, THREADS>>>(d_array, size, d_min);
+
+    //--
+
+    cudaMemcpy(h_min, d_min, sizeof(u_int), cudaMemcpyDeviceToHost); // pega o min
+    cudaMemcpy(h_max, d_max, sizeof(u_int), cudaMemcpyDeviceToHost); // pega o max
 }
 
 

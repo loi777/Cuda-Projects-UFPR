@@ -1,12 +1,9 @@
 // returns the size of the number group of each bin
 // needs some strange calculations due to precision error
-u_int H_getBinSize(u_int min, u_int max, int segCount);
+u_int H_getBinSize(u_int min, u_int max, u_int segCount);
 
-// return the min of a device array
-__global__ u_int H_getMin(u_int* d_array, u_int size);
-
-// return the max of a device array
-__global__ u_int H_getMax(u_int* d_array, u_int size);
+// The um array do device, obtem o minimo e o maximo
+void H_getDeviceMinMax(u_int* d_array, u_int size, u_int* h_min, u_int* h_max);
 
 
 // Kernel para calcular histogramas em particoes
