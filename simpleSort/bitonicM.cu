@@ -110,7 +110,7 @@ __global__ void bitonicSort(u_int *d_array, u_int size, u_int realSize) {
 // A CPU level function that preps the necessary variables for the
 // bitonic sort, and then running it.
 void B_bitonicProxy(u_int* d_array, u_int a_size) {
-    u_int a_Pow2size = getNextPowerOfTwo(a_Pow2size);          // get next higher power of 2 size
+    u_int a_Pow2size = getNextPowerOfTwo(a_size);           // get next higher power of 2 size
     u_int* d_arrayP2 = generatePaddedArray(d_array, a_size, a_Pow2size);
 
     ////==== GET POWER OF 2 ARRAY

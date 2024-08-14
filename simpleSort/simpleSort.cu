@@ -103,14 +103,14 @@ void cudaResetVariables(u_int *HH, u_int *Hg, u_int *SHg, u_int *PSv, u_int h){
 void recursionBitonic(u_int* d_array, u_int p_start, u_int p_end, u_int histograms) {
   u_int a_size = (p_end-p_start);                             // obtem o tamanho em elementos dessa particao
   u_int h_min, h_max;
-  H_getDeviceMinMax(&d_array[p_start], p_end-p_start, &h_min, &h_max);
+  H_getDeviceMinMax(&d_array[p_start], a_size, &h_min, &h_max);
 
   u_int binWidth = H_getBinSize(h_min, h_max, histograms);      // obtem as ranges dos conjuntos numericos/bins
   u_int SEG_SIZE = (ceil((float)a_size/((float)NB)));         // obtem o tamanho em elementos 
 
   //--
 
-  if ((p_end-p_start) < POW2LIMIT) {    // esse segmento eh pequeno o suficiente, ordena com bitonic
+  if (a_size < POW2LIMIT) {    // esse segmento eh pequeno o suficiente, ordena com bitonic
 
     B_bitonicProxy(&d_array[p_start], a_size);
 
@@ -205,13 +205,21 @@ int main(int argc, char* argv[]) {
 
   ////====  BITONIC RECURSION
 
-  thrust::device_vector<u_int> d_vec(h_Input, h_Input + nTotalElements);  // get input array to thrust
+  std::cerr << "DEBUGG  1\n";
+
+  thrust::device_vector<u_int> d_vec(h_Input, h_Input + (nTotalElements-2));  // get input array to thrust
+
+  std::cerr << "DEBUGG  1.2\n";
 
   chrono_start(&chrono_Thrust);
   thrust::sort(d_vec.begin(), d_vec.end());                               // Begin thrust sort
   chrono_stop(&chrono_Thrust);
 
+  std::cerr << "DEBUGG  1.3\n";
+
   thrust::copy(d_vec.begin(), d_vec.end(), h_Output_th);                  // get output array to host
+
+  std::cerr << "DEBUGG  2\n";
 
   ////====  THRUST SORT
 
