@@ -3,8 +3,6 @@ NVCC = nvcc
 
 # Compiler flags
 CFLAGS = -arch=sm_61 -I/usr/include/c++/10 -I/usr/lib/cuda/include/ --std=c++11
-# CUDA flags
-CUDAFLAGS = -arch=sm_50
 
 # Source files
 SRCS = simpleSort.cu bitonicM.cu histogramM.cu
