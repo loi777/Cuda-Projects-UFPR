@@ -87,10 +87,10 @@ void cudaResetVariables(u_int *HH, u_int *Hg, u_int *SHg, u_int *PSv, u_int h){
 // CPU level recursion function that uses histogram to constantly reduce the size of the array
 // when this goes below the shared memory limit then bitonic sort is used to sort the array.
 // TODO :: APLICAR O P_START NO ARRAY DO HOST PARA MOVIMENTALO NA POSICAO CERTA
-void recursionBitonic(u_int* h_array, u_int p_start, u_int p_end, u_int histograms) {
+void recursionBitonic(u_int* d_array, u_int p_start, u_int p_end, u_int histograms) {
   u_int a_size = (p_end-p_start);                             // obtem o tamanho em elementos dessa particao
-  u_int nMin = *std::min_element(h_array, h_array + a_size);  // obtem o min dessa particao
-  u_int nMax = *std::max_element(h_array, h_array + a_size);  // obtem o max dessa particao
+  u_int nMin = H_getMin(d_array, p_end-p_start);  // obtem o min dessa particao
+  u_int nMax = H_getMax(d_array, p_end-p_start);  // obtem o max dessa particao
 
   u_int binWidth = H_getBinSize(nMin, nMax, histograms);      // obtem as ranges dos conjuntos numericos/bins
   u_int SEG_SIZE = (ceil((float)a_size/((float)NB)));         // obtem o tamanho em elementos 
@@ -99,20 +99,17 @@ void recursionBitonic(u_int* h_array, u_int p_start, u_int p_end, u_int histogra
 
   if ((p_end-p_start) < POW2LIMIT) {    // esse segmento eh pequeno o suficiente, ordena com bitonic
 
-    //code
+    B_bitonicProxy();
 
   } else {      // esse segmento eh mt grande, particiona com histogramas
 
-    u_int *d_array, *d_partitioned, *d_HH, *d_Hg, *d_horizontalS, *d_verticalS;
+    u_int *d_partitioned, *d_HH, *d_Hg, *d_horizontalS, *d_verticalS;
     u_int h_horizontalS[histograms];
-    cudaMalloc((void**)&d_array,        a_size                  * sizeof(u_int));  // device input data
     cudaMalloc((void**)&d_partitioned,  a_size                  * sizeof(u_int));  // device output partitionec data
     cudaMalloc((void**)&d_HH,           NB * histograms         * sizeof(u_int));  // device histogram matrix
     cudaMalloc((void**)&d_Hg,           histograms              * sizeof(u_int));  // device histogram sum
     cudaMalloc((void**)&d_horizontalS,  histograms              * sizeof(u_int));  // device histogram prefix sum
     cudaMalloc((void**)&d_verticalS,    NB * histograms         * sizeof(u_int));  // device matrix vertical prefix sum
-
-    cudaMemcpy(d_array, h_array, a_size * sizeof(u_int), cudaMemcpyHostToDevice);  // copia do host o input
 
     ////==== ALOCA MEMORIA CUDA
 
@@ -122,20 +119,18 @@ void recursionBitonic(u_int* h_array, u_int p_start, u_int p_end, u_int histogra
     H_horizontalScan      <<<1,  THREADS, histograms*sizeof(u_int)>>>(d_Hg, d_horizontalS, histograms);
     H_verticalScan        <<<NB, THREADS, histograms*sizeof(u_int)>>>(d_HH, d_verticalS, histograms);
     H_Partitioner         <<<NB, THREADS, histograms*sizeof(u_int)>>>(d_HH, d_horizontalS, d_verticalS, histograms, d_array, d_partitioned, a_size, nMin, nMax, SEG_SIZE, binWidth);
-    cudaMemcpy(h_array, d_partitioned, a_size * sizeof(u_int), cudaMemcpyDeviceToHost);           // salva no host a particao feita
     cudaMemcpy(h_horizontalS, d_horizontalS, histograms * sizeof(u_int), cudaMemcpyDeviceToHost); // salva no host o histograma horizontal para saber a posicao das part.
  
 
     ////==== PARTICIONA USANDO HISTOGRAMA
 
     for (int p_hist = 1; p_hist < histograms; p_hist++) {
-      recursionBitonic(h_array, h_horizontalS[p_hist-1], h_horizontalS[p_hist], histograms);
+      recursionBitonic(d_array, h_horizontalS[p_hist-1], h_horizontalS[p_hist], histograms);
     }
-    recursionBitonic(h_array, h_horizontalS[histograms-1], p_end, histograms);  // o ultimo ponto quebra a logica do loop e eh feito fora
+    recursionBitonic(d_array, h_horizontalS[histograms-1], p_end, histograms);  // o ultimo ponto quebra a logica do loop e eh feito fora
 
     ////==== CONTINUA A RECURSAO
 
-    cudaFree(d_array);
     cudaFree(d_partitioned);
     cudaFree(d_HH);
     cudaFree(d_Hg);
@@ -159,10 +154,16 @@ int main(int argc, char* argv[]) {
   u_int nTotalElements = std::stoi(argv[1]);                    // Numero de elementos
   u_int h = std::stoi(argv[2]);                                 // Numero de histogramas/recursao
   u_int nR = std::stoi(argv[3]);                                // Numero de chamadas do kernel
-  u_int *Input = genRandomArray(nTotalElements);                // Vetor de entrada
-  u_int *Output = new u_int[nTotalElements];                    // Vetor final
+  u_int *h_Input = genRandomArray(nTotalElements);              // Vetor de entrada
+  u_int *h_Output = new u_int[nTotalElements];                  // Vetor final
 
   ////====  GET GLOBAL VARIABLES
+
+  u_int *d_input, *d_output;
+  cudaMalloc((void**)&d_input, nTotalElements * sizeof(u_int));   // device input data
+  cudaMalloc((void**)&d_output, nTotalElements * sizeof(u_int));  // device output data
+
+  ////====  GET CUDA MEMORY
 
   chronometer_t chrono_Thrust, chrono_Hist;
   chrono_reset(&chrono_Thrust);
@@ -172,8 +173,8 @@ int main(int argc, char* argv[]) {
 
   // Information printing, a pedido do Zola
   // variaveis apenas usadas nesse print
-  u_int nMin = *std::min_element(Input, Input + nTotalElements);  // obtem o min dessa particao
-  u_int nMax = *std::max_element(Input, Input + nTotalElements);  // obtem o max dessa particao
+  u_int nMin = *std::min_element(h_Input, h_Input + nTotalElements);  // obtem o min dessa particao
+  u_int nMax = *std::max_element(h_Input, h_Input + nTotalElements);  // obtem o max dessa particao
   u_int binWidth = H_getBinSize(nMin, nMax, h);                   // obtem as ranges dos conjuntos numericos/bins
 
   std::cout << "Min: " << nMin << " | Max: " << nMax << std::endl;
@@ -182,7 +183,7 @@ int main(int argc, char* argv[]) {
   ////====  PRINT DE INFORMAÇÃO
 
   chrono_start(&chrono_Hist);
-  recursionBitonic(Input, 0, nTotalElements, h);
+  recursionBitonic(d_input, 0, nTotalElements, h);
   // OBSERVACAO, ESSA FUNC JA RETORNA O INPUT COMO ORDENADO
   // EH MELHOR USAR ELE DIRETO DOQ TENTAR REPASSAR PARA UM VETOR OUTPUT
   chrono_stop(&chrono_Hist);
@@ -219,8 +220,11 @@ int main(int argc, char* argv[]) {
 
   ////==== PRINT RESULTADOS
 
+  cudaFree(d_input);
+  cudaFree(d_output);
+
   //delete[] Input;
-  delete[] Output;
+  delete[] h_Output;
 
   ////==== FREE MEMORY
 

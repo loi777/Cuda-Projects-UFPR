@@ -31,6 +31,53 @@ u_int H_getBinSize(u_int min, u_int max, int segCount) {
 
 
 
+//---------------------------------------------------------------------------------
+
+
+
+// return the min of a device array
+__global__ u_int H_getMin(u_int* d_array, u_int size) {
+    __shared__ int min;
+
+    u_int posi = (blockIdx.x*blockDim.x) + threadIdx.x;
+
+    while(posi < size) {
+
+        min = atomicMin(&d_array[posi], min);
+
+        posi += blockDim.x;
+    }
+
+    __syncthreads();
+
+    //--
+
+    return min;
+}
+
+
+// return the max of a device array
+__global__ u_int H_getMax(u_int* d_array, u_int size) {
+    __shared__ int max;
+
+    u_int posi = (blockIdx.x*blockDim.x) + threadIdx.x;
+
+    while(posi < size) {
+
+        max = atomicMax(&d_array[posi], max);
+
+        posi += blockDim.x;
+    }
+
+    __syncthreads();
+
+    //--
+
+    return max;
+}
+
+
+
 //--------------------------------------------------------------------------
 
 

@@ -2,6 +2,13 @@
 // needs some strange calculations due to precision error
 u_int H_getBinSize(u_int min, u_int max, int segCount);
 
+// return the min of a device array
+__global__ u_int H_getMin(u_int* d_array, u_int size);
+
+// return the max of a device array
+__global__ u_int H_getMax(u_int* d_array, u_int size);
+
+
 // Kernel para calcular histogramas em particoes
 // Cada bloco eh responsavel por um histograma (linha da matriz)
 __global__ void H_getHistogram(u_int *HH, u_int *Hg, u_int h, u_int *Input, u_int nElements, u_int nMin, u_int nMax, u_int segSize, u_int binWidth);

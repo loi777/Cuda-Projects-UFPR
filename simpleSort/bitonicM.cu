@@ -22,29 +22,6 @@ __device__ inline void swap(u_int &a, u_int &b) {
 }
 
 
-//--------------------------------------------------------------------------
-
-
-void deviceExtendDeviceArray(u_int* d_array, u_int position, u_int addSize) {
-
-}
-
-
-void deviceShrinkDeviceArray(u_int* d_array, u_int position, u_int removeSize) {
-
-}
-
-
-void hostExtendDeviceArray(u_int* d_array, u_int position, u_int addSize) {
-
-}
-
-
-void hostShrinkDeviceArray(u_int* d_array, u_int position, u_int removeSize) {
-
-}
-
-
 
 //--------------------------------------------------------------------------
 
@@ -69,11 +46,15 @@ u_int* generatePaddedArray(u_int* d_array, size_t realSize, size_t nextPowerOfTw
       return nullptr;
     }
 
+    //--
+
     // Allocate memory for the array
     u_int *d_arrayP2;
     cudaMalloc((void**)&d_arrayP2, sizeof(u_int) * nextPowerOfTwo);
     cudaMemset(d_arrayP2, 0, nextPowerOfTwo * sizeof(u_int));
     cudaMemcpy(d_arrayP2, d_array, sizeof(u_int) * realSize, cudaMemcpyDeviceToDevice);
+
+    //--
 
     return d_arrayP2;
 }
@@ -85,7 +66,7 @@ u_int* generatePaddedArray(u_int* d_array, size_t realSize, size_t nextPowerOfTw
 
 // FOR INTERNAL USE
 // funcao principal de bitonic sort
-__global__ void bitonicSort(u_int *values, u_int size, u_int realSize) {
+__global__ void bitonicSort(u_int *d_array, u_int size, u_int realSize) {
   extern __shared__ u_int shared[];
 
   // Get thread index within the block
@@ -94,7 +75,7 @@ __global__ void bitonicSort(u_int *values, u_int size, u_int realSize) {
   // Ensure we do not read out of bounds
   if (tid < size) {
     // Copy input to shared memory
-    shared[threadIdx.x] = values[tid];
+    shared[threadIdx.x] = d_array[tid];
     __syncthreads();
 
     // Perform Bitonic sort
@@ -116,7 +97,7 @@ __global__ void bitonicSort(u_int *values, u_int size, u_int realSize) {
     }
 
     // Write the result back to global memory
-    values[tid] = shared[threadIdx.x];
+    d_array[tid] = shared[threadIdx.x];
   }
 }
 
@@ -130,9 +111,15 @@ __global__ void bitonicSort(u_int *values, u_int size, u_int realSize) {
 // bitonic sort, and then running it.
 void B_bitonicProxy(u_int* d_array, u_int a_size) {
     u_int a_Pow2size = getNextPowerOfTwo(a_Pow2size);          // get next higher power of 2 size
-    u_int* d_arrayP2 = generatePaddedArray();
+    u_int* d_arrayP2 = generatePaddedArray(d_array, a_size, a_Pow2size);
 
     ////==== GET POWER OF 2 ARRAY
 
-    bitonicSort<<<>>>(d_array, a_Pow2size, a_size);
+    bitonicSort<<<1, THREADS, SHAREDLIMIT>>>(d_arrayP2, a_Pow2size, a_size);
+
+    ////==== CALCULATE BITONIC ON THIS POW2 ARRAY
+
+    cudaMemcpy(d_array, d_arrayP2, sizeof(u_int) * a_size, cudaMemcpyDeviceToDevice);
+
+    ////==== SEND BACK TO THE OTHER DEVICE MEMORY
 }
