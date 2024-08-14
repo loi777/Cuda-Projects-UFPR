@@ -29,7 +29,7 @@ __global__ void verifySort(u_int* d_arr1, u_int* d_arr2, u_int size) {
 
   while(posi < size) {
     if (d_arr1[posi] != d_arr2[posi]) {
-      printf("FALHA NA VERIFICACAO!!!\n     falores encontrados: [%d]%d [%d]%d", posi, d_arr1[posi], posi, d_arr2[posi]);
+      printf("FALHA NA VERIFICACAO!!!\n     valores encontrados: [%d]%d [%d]%d\n", posi, d_arr1[posi], posi, d_arr2[posi]);
     }
 
     posi += blockDim.x;
@@ -198,7 +198,7 @@ int main(int argc, char* argv[]) {
   cudaMemcpy(d_input, h_Input, nTotalElements * sizeof(u_int), cudaMemcpyHostToDevice);     // get input array to device
   
   chrono_start(&chrono_Hist);
-  recursionBitonic(d_input, 0, nTotalElements, h);                                          // Begin bitonic sort
+  //recursionBitonic(d_input, 0, nTotalElements, h);                                          // Begin bitonic sort
   chrono_stop(&chrono_Hist);
 
   cudaMemcpy(h_Output_bi, d_input, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost); // get output array to host
@@ -207,7 +207,7 @@ int main(int argc, char* argv[]) {
 
   std::cerr << "DEBUGG  1\n";
 
-  thrust::device_vector<u_int> d_vec(h_Input, h_Input + (nTotalElements-2));  // get input array to thrust
+  thrust::device_vector<u_int> d_vec(h_Input, h_Input + nTotalElements);  // get input array to thrust
 
   std::cerr << "DEBUGG  1.2\n";
 
