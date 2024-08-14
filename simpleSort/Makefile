@@ -2,7 +2,13 @@
 NVCC = nvcc
 
 # Compiler flags
+# Define the CUDA compiler
+NVCC = nvcc
+
+# Compiler flags
 CFLAGS = -arch=sm_61 -I/usr/include/c++/10 -I/usr/lib/cuda/include/ --std=c++11
+# CUDA flags
+#CUDAFLAGS = -arch=sm_50
 
 # Source files
 SRCS = simpleSort.cu bitonicM.cu histogramM.cu
@@ -16,12 +22,13 @@ all: $(TARGET)
 
 # Rule to build the executable
 $(TARGET): $(OBJS)
-	$(NVCC) $(CFLAGS) $(CUDAFLAGS) -o $(TARGET) $(OBJS)
+    $(NVCC) $(CFLAGS) $(CUDAFLAGS) -o $(TARGET) $(OBJS)
 
 # Rule to compile CUDA source files into object files
 %.o: %.cu
-	$(NVCC) $(CFLAGS) $(CUDAFLAGS) -c $< -o $@
+    $(NVCC) $(CFLAGS) $(CUDAFLAGS) -c $< -o $@
 
 # Clean up build artifacts
 clean:
-	rm -f $(OBJS) $(TARGET)
+clean:
+    rm -f $(OBJS) $(TARGET)
