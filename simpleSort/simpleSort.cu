@@ -97,7 +97,7 @@ void recursionBitonic(u_int* h_array, u_int p_start, u_int p_end, u_int histogra
 
   //--
 
-  if ((p_end-p_start) < SHAREDLIMIT) {    // esse segmento eh pequeno o suficiente, ordena com bitonic
+  if ((p_end-p_start) < POW2LIMIT) {    // esse segmento eh pequeno o suficiente, ordena com bitonic
 
     //code
 

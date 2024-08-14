@@ -13,46 +13,35 @@
 
 
 
-// For internal use
-// Function to get the next power of two greater than or equal to the given value
-unsigned int getNextPowerOfTwo(size_t value) {
-  unsigned int power = 1;
-  while (power < value) { power <<= 1; }
-
-  return power;
-}
-
-
-// For internal use
+// FOR INTERNAL USE
 // funcao inline para simplificar nosso codigo
-__device__ inline void swap(int &a, int &b) {
-  int tmp = a;
+__device__ inline void swap(u_int &a, u_int &b) {
+  u_int tmp = a;
   a = b;
   b = tmp;
 }
 
 
-
 //--------------------------------------------------------------------------
 
 
+void deviceExtendDeviceArray(u_int* d_array, u_int position, u_int addSize) {
 
-// Function to generate the padded array
-unsigned int* generatePaddedArray(size_t realSize, size_t nextPowerOfTwo) {
-  // Ensure nextPowerOfTwo is a power of two
-  if ((nextPowerOfTwo & (nextPowerOfTwo - 1)) != 0) {
-    std::cerr << "nextPowerOfTwo must be a power of two." << std::endl;
-    return nullptr;
-  }
+}
 
-  // Allocate memory for the array
-  unsigned int *array = new unsigned int[nextPowerOfTwo];
-  // Fill the array with random values for the first part
-  for (size_t i = 0; i < realSize; ++i) { array[i] = std::rand(); }
-  // Fill the rest of the array with the maximum unsigned int value
-  for (size_t i = realSize; i < nextPowerOfTwo; ++i) { array[i] = UINT_MAX; }
 
-  return array;
+void deviceShrinkDeviceArray(u_int* d_array, u_int position, u_int removeSize) {
+
+}
+
+
+void hostExtendDeviceArray(u_int* d_array, u_int position, u_int addSize) {
+
+}
+
+
+void hostShrinkDeviceArray(u_int* d_array, u_int position, u_int removeSize) {
+
 }
 
 
@@ -61,12 +50,46 @@ unsigned int* generatePaddedArray(size_t realSize, size_t nextPowerOfTwo) {
 
 
 
+// FOR INTERNAL USE
+// Function to get the next power of two greater than or equal to the given value
+u_int getNextPowerOfTwo(size_t value) {
+    u_int power = 1;
+    while (power < value) { power <<= 1; }
+
+    return power;
+}
+
+
+// Function to generate the padded array
+// returns a pointer to a device memory of the array length
+u_int* generatePaddedArray(u_int* d_array, size_t realSize, size_t nextPowerOfTwo) {
+    // Ensure nextPowerOfTwo is a power of two
+    if ((nextPowerOfTwo & (nextPowerOfTwo - 1)) != 0) {
+      std::cerr << "nextPowerOfTwo must be a power of two." << std::endl;
+      return nullptr;
+    }
+
+    // Allocate memory for the array
+    u_int *d_arrayP2;
+    cudaMalloc((void**)&d_arrayP2, sizeof(u_int) * nextPowerOfTwo);
+    cudaMemset(d_arrayP2, 0, nextPowerOfTwo * sizeof(u_int));
+    cudaMemcpy(d_arrayP2, d_array, sizeof(u_int) * realSize, cudaMemcpyDeviceToDevice);
+
+    return d_arrayP2;
+}
+
+
+//--------------------------------------------------------------------------
+
+
+
+// FOR INTERNAL USE
 // funcao principal de bitonic sort
-__global__ void bitonicSort(int *values, int size) {
-  extern __shared__ int shared[];
+__global__ void bitonicSort(u_int *values, u_int size, u_int realSize) {
+  extern __shared__ u_int shared[];
 
   // Get thread index within the block
-  const int tid = threadIdx.x + blockIdx.x * blockDim.x;
+  const u_int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
   // Ensure we do not read out of bounds
   if (tid < size) {
@@ -95,4 +118,21 @@ __global__ void bitonicSort(int *values, int size) {
     // Write the result back to global memory
     values[tid] = shared[threadIdx.x];
   }
+}
+
+
+
+//--------------------------------------------------------------------------
+
+
+
+// A CPU level function that preps the necessary variables for the
+// bitonic sort, and then running it.
+void B_bitonicProxy(u_int* d_array, u_int a_size) {
+    u_int a_Pow2size = getNextPowerOfTwo(a_Pow2size);          // get next higher power of 2 size
+    u_int* d_arrayP2 = generatePaddedArray();
+
+    ////==== GET POWER OF 2 ARRAY
+
+    bitonicSort<<<>>>(d_array, a_Pow2size, a_size);
 }
