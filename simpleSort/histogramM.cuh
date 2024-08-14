@@ -3,7 +3,7 @@
 u_int H_getBinSize(u_int min, u_int max, u_int segCount);
 
 // The um array do device, obtem o minimo e o maximo
-void H_getDeviceMinMax(u_int* d_array, u_int size, u_int* h_min, u_int* h_max);
+void H_getDeviceMinMax(u_int* d_array, u_int start, u_int size, u_int* h_min, u_int* h_max);
 
 
 // Kernel para calcular histogramas em particoes

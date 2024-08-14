@@ -29,7 +29,7 @@ __global__ void verifySort(u_int* d_arr1, u_int* d_arr2, u_int size) {
 
   while(posi < size) {
     if (d_arr1[posi] != d_arr2[posi]) {
-      printf("FALHA NA VERIFICACAO!!!\n     valores encontrados: [%d]%d [%d]%d\n", posi, d_arr1[posi], posi, d_arr2[posi]);
+      //printf("FALHA NA VERIFICACAO!!!\n     valores encontrados: [%d]%d [%d]%d\n", posi, d_arr1[posi], posi, d_arr2[posi]);
     }
 
     posi += blockDim.x;
@@ -102,8 +102,9 @@ void cudaResetVariables(u_int *HH, u_int *Hg, u_int *SHg, u_int *PSv, u_int h){
 // when this goes below the shared memory limit then bitonic sort is used to sort the array.
 void recursionBitonic(u_int* d_array, u_int p_start, u_int p_end, u_int histograms) {
   u_int a_size = (p_end-p_start);                             // obtem o tamanho em elementos dessa particao
-  u_int h_min, h_max;
-  H_getDeviceMinMax(&d_array[p_start], a_size, &h_min, &h_max);
+  u_int h_min = UINT32_MAX;
+  u_int h_max = 0;
+  H_getDeviceMinMax(d_array, p_start, a_size, &h_min, &h_max);
 
   u_int binWidth = H_getBinSize(h_min, h_max, histograms);      // obtem as ranges dos conjuntos numericos/bins
   u_int SEG_SIZE = (ceil((float)a_size/((float)NB)));         // obtem o tamanho em elementos 
@@ -198,7 +199,7 @@ int main(int argc, char* argv[]) {
   cudaMemcpy(d_input, h_Input, nTotalElements * sizeof(u_int), cudaMemcpyHostToDevice);     // get input array to device
   
   chrono_start(&chrono_Hist);
-  //recursionBitonic(d_input, 0, nTotalElements, h);                                          // Begin bitonic sort
+  recursionBitonic(d_input, 0, nTotalElements, h);                                          // Begin bitonic sort
   chrono_stop(&chrono_Hist);
 
   cudaMemcpy(h_Output_bi, d_input, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost); // get output array to host
