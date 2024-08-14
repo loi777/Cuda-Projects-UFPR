@@ -107,7 +107,7 @@ void recursionBitonic(u_int* d_array, u_int p_start, u_int p_end, u_int histogra
   H_getDeviceMinMax(d_array, p_start, a_size, &h_min, &h_max);
 
   u_int binWidth = H_getBinSize(h_min, h_max, histograms);      // obtem as ranges dos conjuntos numericos/bins
-  u_int SEG_SIZE = (ceil((float)a_size/((float)NB)));         // obtem o tamanho em elementos 
+  u_int SEG_SIZE = (ceil((float)a_size/((float)NB)));           // obtem o tamanho em elementos
 
   //--
 

@@ -51,7 +51,7 @@ u_int* generatePaddedArray(u_int* d_array, size_t realSize, size_t nextPowerOfTw
     // Allocate memory for the array
     u_int *d_arrayP2;
     cudaMalloc((void**)&d_arrayP2, sizeof(u_int) * nextPowerOfTwo);
-    cudaMemset(d_arrayP2, 0, nextPowerOfTwo * sizeof(u_int));
+    cudaMemset(d_arrayP2, __UINT32_MAX__, nextPowerOfTwo * sizeof(u_int));
     cudaMemcpy(d_arrayP2, d_array, sizeof(u_int) * realSize, cudaMemcpyDeviceToDevice);
 
     //--
