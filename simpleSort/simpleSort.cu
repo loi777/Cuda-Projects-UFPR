@@ -16,7 +16,7 @@ typedef unsigned int u_int;
 #define NB NP*BLOCKS     // Total number of blocks
 #define THREADS 1024     // Number of threads per block
 
-#define N 1048576        // BitonicSort - 2^20
+#define N 33554432       // Tamanho maximo do bitonic sort
 
 #define BINFIND(min, max, val, binSize, binQtd) (val >= max ? binQtd-1 : (val - min) / binSize)
 
@@ -24,7 +24,7 @@ typedef unsigned int u_int;
 
 // returns the size of the number group of each bin
 // needs some strange calculations due to precision error
-u_int getBinSize(u_int min, u_int max, int segCount) {
+u_int getBinSize(u_int min, u_int max, u_int segCount) {
   u_int binSize = max - min;
   if ((binSize % segCount) == 0) {
     // complete division
@@ -43,20 +43,20 @@ u_int getBinSize(u_int min, u_int max, int segCount) {
 // Cada bloco eh responsavel por um histograma (linha da matriz)
 __global__ void blockAndGlobalHisto(u_int *HH, u_int *Hg, u_int h, u_int *Input, u_int nElements, u_int nMin, u_int nMax, u_int segSize, u_int binWidth) {
     // Alloca shared memory para UM histograma
-    extern __shared__ int _HH[];
+    extern __shared__ u_int _HH[];
     if (threadIdx.x < h) { _HH[threadIdx.x] = 0; }
     __syncthreads();
 
     //---
 
     // Inicio da particao no vetor
-    int blcStart = (blockIdx.x * segSize);    // bloco positionado na frente daquele que veio anterior a ele
-    int thrdPosi = threadIdx.x;              // 1 elemento por thread, starts as exactly the thread.x
+    u_int blcStart = (blockIdx.x * segSize);    // bloco positionado na frente daquele que veio anterior a ele
+    u_int thrdPosi = threadIdx.x;              // 1 elemento por thread, starts as exactly the thread.x
 
     while(thrdPosi < segSize && ((blcStart+thrdPosi) < nElements)) {
         // Loop enquanto a thread estiver resolvendo elementos validos dentro do bloco e do array
         u_int val = Input[blcStart + thrdPosi];    // get value
-        int posi = BINFIND(nMin, nMax, val, binWidth, h);
+        u_int posi = BINFIND(nMin, nMax, val, binWidth, h);
         atomicAdd(&_HH[posi], 1);  // add to its corresponding segment
         atomicAdd(&Hg[posi], 1);  // add to its corresponding segment
 
@@ -127,7 +127,7 @@ __global__ void verticalScanHH(u_int *HH, u_int *PSv, u_int h){
     //--
 
     while (thrdPosi < h) {
-      int sum = 0;
+      u_int sum = 0;
       for (int i=blockIdx.x-1; i>=0; i--){
         sum += HH[i*h + thrdPosi];
       }
@@ -221,8 +221,8 @@ u_int* genRandomArray(int nElem) {
   u_int* array = new u_int[nElem];
 
   for (int i = 0; i < nElem; ++i) {
-    int a = std::rand() % 50;
-    int b = std::rand();
+    u_int a = std::rand() % 50;
+    u_int b = std::rand();
     u_int v = a * 100 + b;
     array[i] = v;
   }
@@ -256,8 +256,8 @@ void cudaResetVariables(u_int *HH, u_int *Hg, u_int *SHg, u_int *PSv, u_int h){
 //---------------------------------------------------------------------------------
 
 // Function to get the next power of two greater than or equal to the given value
-unsigned int getNextPowerOfTwo(size_t value) {
-  unsigned int power = 1;
+u_int getNextPowerOfTwo(size_t value) {
+  u_int power = 1;
   while (power < value) { power <<= 1; }
 
   return power;
@@ -389,11 +389,6 @@ int main(int argc, char* argv[]) {
 
   return EXIT_SUCCESS;
 }
-
-  //u_int nTotalElements = 18;
-  //u_int h = 6;
-  //u_int nR = 2;
-  //u_int Input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
 
     // launch kernel that that sorts the inside of each bin partition
     //cudaMemcpy(h_SHg, SHg, h * sizeof(u_int), cudaMemcpyDeviceToHost);

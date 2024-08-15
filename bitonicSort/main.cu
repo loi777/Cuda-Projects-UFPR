@@ -8,7 +8,7 @@
 
 #include "sortingNetworks_common.h"
 
-#define N 1048576 // 2^20
+#define N 33554432  // Ordenacao maxima do bitonic sort
 
 // Function to get the next power of two greater than or equal to the given value
 unsigned int getNextPowerOfTwo(size_t value) {
@@ -34,7 +34,7 @@ void generatePaddedArray(unsigned int *array, unsigned int *index, size_t realSi
 
 int main(int argc, char** argv) {
   std::srand(std::time(nullptr));
-  unsigned int Size = 1000000;
+  unsigned int Size = 16000000;
   unsigned int powerSize = getNextPowerOfTwo(Size);
 
   // Alocate host and CUDA vectors
@@ -64,9 +64,9 @@ int main(int argc, char** argv) {
 
   cudaMemcpy(h_Output, d_Output, powerSize * sizeof(uint), cudaMemcpyDeviceToHost);
 
-  std::cout << "Output: " << std::endl;
-  for (int i=0; i<powerSize ;i++) { std::cout << h_Output[i] << " "; }
-  std::cout << std::endl;
+  //std::cout << "Output: " << std::endl;
+  //for (int i=0; i<powerSize ;i++) { std::cout << h_Output[i] << " "; }
+  //std::cout << std::endl;
 
   bool passed = true;
   for(int i = 1; i < Size; i++)
@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
       passed = false;
       printf("Falha na posicao [%d] com [%d]\n", i-1, i);
     }
-  printf("Test %s\n", passed ? "PASSED" : "FAILED");
+  printf("Sort of %d values: %s\n", Size, passed ? "PASSED" : "FAILED");
 
   cudaFree(d_Input);
   cudaFree(d_InputIdx);
