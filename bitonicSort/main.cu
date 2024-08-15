@@ -8,9 +8,6 @@
 
 #include "sortingNetworks_common.h"
 
-#define BLOCKS 1
-#define THREADS 1024
-
 #define N 1048576 // 2^20
 
 // Function to get the next power of two greater than or equal to the given value
@@ -37,41 +34,39 @@ void generatePaddedArray(unsigned int *array, unsigned int *index, size_t realSi
 
 int main(int argc, char** argv) {
   std::srand(std::time(nullptr));
-  unsigned int Size = 1000000;
+  unsigned int Size = 20;
   unsigned int powerSize = getNextPowerOfTwo(Size);
 
   // Alocate host and CUDA vectors
   uint *h_Input, *h_InputIdx, *h_Output, *h_OutputIdx;
   uint *d_Input, *d_InputIdx, *d_Output, *d_OutputIdx;
-  h_Input     = (uint *)malloc(N * sizeof(uint));
-  h_InputIdx  = (uint *)malloc(N * sizeof(uint));
-  h_Output    = (uint *)malloc(N * sizeof(uint));
-  h_OutputIdx = (uint *)malloc(N * sizeof(uint));
-  cudaMalloc((void **)&d_Input,     N * sizeof(uint));
-  cudaMalloc((void **)&d_InputIdx,  N * sizeof(uint));
-  cudaMalloc((void **)&d_Output,    N * sizeof(uint));
-  cudaMalloc((void **)&d_OutputIdx, N * sizeof(uint));
+  h_Input     = (uint *)malloc(powerSize * sizeof(uint));
+  h_InputIdx  = (uint *)malloc(powerSize * sizeof(uint));
+  h_Output    = (uint *)malloc(powerSize * sizeof(uint));
+  h_OutputIdx = (uint *)malloc(powerSize * sizeof(uint));
+  cudaMalloc((void **)&d_Input,     N * sizeof(uint)); // Tamanho deve ser N por conta do bitonic
+  cudaMalloc((void **)&d_InputIdx,  N * sizeof(uint)); // Tamanho deve ser N por conta do bitonic
+  cudaMalloc((void **)&d_Output,    N * sizeof(uint)); // Tamanho deve ser N por conta do bitonic
+  cudaMalloc((void **)&d_OutputIdx, N * sizeof(uint)); // Tamanho deve ser N por conta do bitonic
 
   // Insert random elements
   generatePaddedArray(h_Input, h_InputIdx, Size, powerSize);
 
   // Copy memory to device
-  cudaMemcpy(d_Input,    h_Input,    N * sizeof(uint), cudaMemcpyHostToDevice);
-  cudaMemcpy(d_InputIdx, h_InputIdx, N * sizeof(uint), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_Input,    h_Input,    powerSize * sizeof(uint), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_InputIdx, h_InputIdx, powerSize * sizeof(uint), cudaMemcpyHostToDevice);
 
   //std::cout << "Input: " << powerSize << std::endl;
-  //for (int i=0; i<powerSize ;i++)
-  //  std::cout << h_Input[i] << " ";
+  //for (int i=0; i<powerSize ;i++) { std::cout << h_Input[i] << " "; }
   //std::cout << std::endl;
 
   bitonicSort(d_Output, d_OutputIdx, d_Input, d_InputIdx, N / powerSize, powerSize, 0);
 
-  cudaMemcpy(h_Output, d_Output, N * sizeof(uint), cudaMemcpyDeviceToHost);
+  cudaMemcpy(h_Output, d_Output, powerSize * sizeof(uint), cudaMemcpyDeviceToHost);
 
-  //std::cout << "Output: " << std::endl;
-  //for (int i=0; i<powerSize ;i++)
-  //  std::cout << h_Output[i] << " ";
-  //std::cout << std::endl;
+  std::cout << "Output: " << std::endl;
+  for (int i=0; i<powerSize ;i++) { std::cout << h_Output[i] << " "; }
+  std::cout << std::endl;
 
   bool passed = true;
   for(int i = 1; i < Size; i++)
