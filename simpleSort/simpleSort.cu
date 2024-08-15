@@ -1,3 +1,7 @@
+#include <climits>
+#include <cstddef>
+#include <cuda_runtime_api.h>
+#include <driver_types.h>
 #include <iostream>
 #include <cstdlib>
 #include <ctime>
@@ -5,6 +9,7 @@
 #include <cuda.h>
 #include <thrust/sort.h>
 #include <thrust/device_vector.h>
+#include <thrust/system/cuda/detail/par.h>
 
 #include "sortingNetworks_common.h"
 #include "chrono.c"
@@ -184,13 +189,13 @@ __global__ void PartitionKernel(u_int *HH, u_int *SHg, u_int *PSv, u_int h, u_in
 }
 
 
-void thrustSortProxy(u_int* h_array, u_int start, u_int end) {
-  thrust::device_vector<u_int> d_vec(&h_array[start], &h_array[start] + (end-start));
-
-  thrust::sort(d_vec.begin(), d_vec.end());
-
-  thrust::copy(d_vec.begin(), d_vec.end(), &h_array[start]);
-}
+//void thrustSortProxy(u_int* h_array, u_int start, u_int end) {
+//  thrust::device_vector<u_int> d_vec(&h_array[start], &h_array[start] + (end-start));
+//
+//  thrust::sort(d_vec.begin(), d_vec.end());
+//
+//  thrust::copy(d_vec.begin(), d_vec.end(), &h_array[start]);
+//}
 
 
 //---------------------------------------------------------------------------------
@@ -285,11 +290,11 @@ int main(int argc, char* argv[]) {
   u_int powerElements = getNextPowerOfTwo(nTotalElements);      // Numero de elementos
   u_int h = std::stoi(argv[2]);                                 // Numero de histogramas
   u_int nR = std::stoi(argv[3]);                                // Numero de chamadas do kernel
-  u_int *Input  = new u_int[powerElements];                    // Vetor de entrada
-  u_int *InputIdx  = new u_int[powerElements];                 // Vetor indexado
-  u_int *Output = new u_int[powerElements];                    // Vetor ordenado
-  u_int *OutputIdx = new u_int[powerElements];                 // Vetor indexado
-  u_int *h_SHg  = new u_int[h];                                 // host soma de prefixos
+  u_int *Input     = new u_int[powerElements];                  // Vetor de entrada
+  u_int *Output    = new u_int[powerElements];                  // Vetor ordenado
+  u_int *InputIdx  = new u_int[powerElements];                  // Vetor indexado
+  u_int *OutputIdx = new u_int[powerElements];                  // Vetor indexado
+  u_int *h_SHg     = new u_int[h];                              // host soma de prefixos
   u_int SEG_SIZE = (ceil((float)nTotalElements/((float)NB)));
   chronometer_t chrono_Thrust, chrono_Hist;
 
@@ -308,11 +313,13 @@ int main(int argc, char* argv[]) {
   // Aloca cores e copia para GPU
   u_int *d_Input, *d_InputIdx;
   u_int *d_Output,*d_OutputIdx;
+  u_int *d_stage;
   u_int *HH, *Hg, *SHg, *PSv;
   cudaMalloc((void**)&d_Input,     N * sizeof(u_int));  // device input data
-  cudaMalloc((void**)&d_InputIdx,  N * sizeof(u_int));  // device input data
-  cudaMalloc((void**)&d_Output,    N * sizeof(u_int));  // device input sorted data
-  cudaMalloc((void**)&d_OutputIdx, N * sizeof(u_int));  // device input sorted data
+  cudaMalloc((void**)&d_Output,    N * sizeof(u_int));  // device sorted data
+  cudaMalloc((void**)&d_InputIdx,  N * sizeof(u_int));  // device input index
+  cudaMalloc((void**)&d_OutputIdx, N * sizeof(u_int));  // device sorted index
+  cudaMalloc((void**)&d_stage,     N * sizeof(u_int));  // device temp memory
   cudaMalloc((void**)&HH,          NB * h         * sizeof(u_int));  // device histogram matrix
   cudaMalloc((void**)&Hg,          h              * sizeof(u_int));  // device histogram sum
   cudaMalloc((void**)&SHg,         h              * sizeof(u_int));  // device histogram prefix sum
@@ -333,13 +340,31 @@ int main(int argc, char* argv[]) {
     cudaResetVariables(HH, Hg, SHg, PSv, h);
     // --
     chrono_start(&chrono_Hist);
-    //blockAndGlobalHisto<<<NB, THREADS, h*sizeof(u_int)>>>(HH, Hg, h, d_Input, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
-    //globalHistoScan    <<<1,  THREADS, h*sizeof(u_int)>>>(Hg, SHg, h);
-    //verticalScanHH     <<<NB, THREADS, h*sizeof(u_int)>>>(HH, PSv, h);
-    //PartitionKernel    <<<NB, THREADS, h*sizeof(u_int)>>>(HH, SHg, PSv, h, d_Input, d_Output, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
-    //cudaMemcpy(h_SHg, SHg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
+    blockAndGlobalHisto<<<NB, THREADS, h*sizeof(u_int)>>>(HH, Hg, h, d_Input, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
+    globalHistoScan    <<<1,  THREADS, h*sizeof(u_int)>>>(Hg, SHg, h);
+    verticalScanHH     <<<NB, THREADS, h*sizeof(u_int)>>>(HH, PSv, h);
+    PartitionKernel    <<<NB, THREADS, h*sizeof(u_int)>>>(HH, SHg, PSv, h, d_Input, d_Output, nTotalElements, nMin, nMax, SEG_SIZE, binWidth);
+    // --
+    cudaMemcpy(h_SHg, SHg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
+    u_int start=0, end=0, power=1, part_size=0;;  // call a bitonic sort for every bin
+    for (u_int bin = 1; bin < h; bin++) {
+      power = 1;
+      start = end;
+      end = h_SHg[bin];
+      part_size = end-start;
+      while (power < part_size) { power <<= 1; }
+      bitonicSort(d_stage, d_OutputIdx, d_Output+start, d_InputIdx, N / power, power, 0);
+      cudaMemcpy(d_Output+start, d_stage, part_size*sizeof(u_int), cudaMemcpyDeviceToDevice);
+    }
+      power = 1;
+      start = end;
+      end = nTotalElements;
+      part_size = end-start;
+      while (power < part_size) { power <<= 1; }
+      bitonicSort(d_stage, d_OutputIdx, d_Output+start, d_InputIdx, N / power, power, 0);
+      cudaMemcpy(d_Output+start, d_stage, part_size*sizeof(u_int), cudaMemcpyDeviceToDevice);
 
-    bitonicSort(d_Output, d_OutputIdx, d_Input, d_InputIdx, N / powerElements, powerElements, 0);
+    //bitonicSort(d_Output, d_OutputIdx, d_Input, d_InputIdx, N / powerElements, powerElements, 0);
     chrono_stop(&chrono_Hist);
     // --
     cudaMemcpy(Output, d_Output, powerElements * sizeof(u_int), cudaMemcpyDeviceToHost);
@@ -358,8 +383,8 @@ int main(int argc, char* argv[]) {
   chrono_report_TimeInLoop( &chrono_Thrust, (char *)"thrust sort", nR);
 
   double thrust_time_seconds = (double) chrono_gettotal( &chrono_Thrust )/((double)1000*1000*1000);
-  printf( "Tempo em segundos: %lf s\n", thrust_time_seconds );
-  printf( "Vazão: %lf INT/s\n", (nTotalElements)/thrust_time_seconds );
+  printf( "Tempo em milisegundos: %lf ms\n", thrust_time_seconds*1000 );
+  printf( "Vazão: %lf MINT/s\n", (nTotalElements)/(thrust_time_seconds*1000000) );
   
   //--
 
@@ -368,11 +393,11 @@ int main(int argc, char* argv[]) {
   chrono_report_TimeInLoop( &chrono_Hist, (char *)"histogram sort", nR);
 
   double reduce_time_seconds = (double) chrono_gettotal( &chrono_Hist )/((double)1000*1000*1000);
-  printf( "Tempo em segundos: %lf s\n", reduce_time_seconds );
-  printf( "Vazão: %lf INT/s\n", (nTotalElements)/reduce_time_seconds );
+  printf( "Tempo em milisegundos: %lf ms\n", reduce_time_seconds*1000 );
+  printf( "Vazão: %lf MINT/s\n", (nTotalElements)/(reduce_time_seconds*1000000) );
 
   printf("\n--Tempo em relacao ao Thrust\n");
-  printf("Em segundos: %lf\n", reduce_time_seconds - thrust_time_seconds);
+  printf("Em milisegundos: %lf\n", (reduce_time_seconds - thrust_time_seconds)*1000);
   printf("Em porcento: %d\n", (int)((thrust_time_seconds/reduce_time_seconds)*100.0));
 
   //--

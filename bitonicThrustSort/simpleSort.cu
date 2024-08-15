@@ -358,8 +358,8 @@ int main(int argc, char* argv[]) {
   chrono_report_TimeInLoop( &chrono_Thrust, (char *)"thrust sort", nR);
 
   double thrust_time_seconds = (double) chrono_gettotal( &chrono_Thrust )/((double)1000*1000*1000);
-  printf( "Tempo em segundos: %lf s\n", thrust_time_seconds );
-  printf( "Vazão: %lf INT/s\n", (nTotalElements)/thrust_time_seconds );
+  printf( "Tempo em milisegundos: %lf ms\n", thrust_time_seconds*1000 );
+  printf( "Vazão: %lf MINT/s\n", (nTotalElements)/(thrust_time_seconds*1000000) );
   
   //--
 
@@ -368,11 +368,11 @@ int main(int argc, char* argv[]) {
   chrono_report_TimeInLoop( &chrono_Hist, (char *)"histogram sort", nR);
 
   double reduce_time_seconds = (double) chrono_gettotal( &chrono_Hist )/((double)1000*1000*1000);
-  printf( "Tempo em segundos: %lf s\n", reduce_time_seconds );
-  printf( "Vazão: %lf INT/s\n", (nTotalElements)/reduce_time_seconds );
+  printf( "Tempo em milisegundos: %lf ms\n", reduce_time_seconds*1000 );
+  printf( "Vazão: %lf MINT/s\n", (nTotalElements)/(reduce_time_seconds*1000000) );
 
   printf("\n--Tempo em relacao ao Thrust\n");
-  printf("Em segundos: %lf\n", reduce_time_seconds - thrust_time_seconds);
+  printf("Em milisegundos: %lf\n", (reduce_time_seconds - thrust_time_seconds)*1000);
   printf("Em porcento: %d\n", (int)((thrust_time_seconds/reduce_time_seconds)*100.0));
 
   //--
