@@ -256,6 +256,7 @@ __global__ void reverseArray(uint *data, uint nElements, uint segSize){
   __syncthreads();
 }
 
+
 ////////////////////////////////////////////////////////////////////////////////
 // Interface function
 ////////////////////////////////////////////////////////////////////////////////
@@ -322,6 +323,5 @@ extern "C" uint bitonicSort(
     }
 
     reverseArray<<<blockCount, threadCount>>>(d_DstKey, arrayLength, ceil((float)(arrayLength/2)/(float)blockCount));
-
     return threadCount;
 }

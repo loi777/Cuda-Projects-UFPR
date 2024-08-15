@@ -347,9 +347,9 @@ int main(int argc, char* argv[]) {
     verifySort(Input, Output, nTotalElements, &chrono_Thrust, k);
   }
 
-  std::cout << "Output: " << std::endl;
-  for (size_t i=0; i<powerElements ;i++) std::cout << Output[i] << " ";
-  std::cout << std::endl;
+  //std::cout << "Output: " << std::endl;
+  //for (size_t i=0; i<powerElements ;i++) std::cout << Output[i] << " ";
+  //std::cout << std::endl;
 
   // ---
 

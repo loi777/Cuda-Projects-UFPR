@@ -34,7 +34,7 @@ void generatePaddedArray(unsigned int *array, unsigned int *index, size_t realSi
 
 int main(int argc, char** argv) {
   std::srand(std::time(nullptr));
-  unsigned int Size = 20;
+  unsigned int Size = 1000000;
   unsigned int powerSize = getNextPowerOfTwo(Size);
 
   // Alocate host and CUDA vectors
@@ -70,7 +70,7 @@ int main(int argc, char** argv) {
 
   bool passed = true;
   for(int i = 1; i < Size; i++)
-    if (h_Output[i-1] < h_Output[i]) {
+    if (h_Output[i-1] > h_Output[i]) {
       passed = false;
       printf("Falha na posicao [%d] com [%d]\n", i-1, i);
     }

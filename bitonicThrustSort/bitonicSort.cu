@@ -242,6 +242,20 @@ __global__ void bitonicMergeShared(
 }
 
 
+__global__ void reverseArray(uint *data, uint nElements, uint segSize){
+  uint blcStart = (blockIdx.x * segSize);
+  uint thrdPosi = threadIdx.x;
+
+  while (thrdPosi < segSize && ((blcStart+thrdPosi) < (nElements/2))) {
+    const uint mirror_id = nElements - (blcStart+thrdPosi) - 1;
+    const uint temp = data[blcStart+thrdPosi];
+    data[blcStart+thrdPosi] = data[mirror_id];
+    data[mirror_id] = temp;
+    thrdPosi += blockDim.x;
+  }
+  __syncthreads();
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////
 // Interface function
@@ -308,5 +322,6 @@ extern "C" uint bitonicSort(
                 }
     }
 
+    reverseArray<<<blockCount, threadCount>>>(d_DstKey, arrayLength, ceil((float)(arrayLength/2)/(float)blockCount));
     return threadCount;
 }
