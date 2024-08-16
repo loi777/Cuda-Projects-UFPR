@@ -389,7 +389,7 @@ int main(int argc, char* argv[]) {
 
   double thrust_time_seconds = (double) chrono_gettotal( &chrono_Thrust )/((double)1000*1000*1000);
   printf( "Tempo em milisegundos: %lf ms\n", thrust_time_seconds*1000 );
-  printf( "Vazão: %lf MINT/s\n", (nTotalElements)/(thrust_time_seconds*1000000) );
+  printf( "Vazão: %lf GINT/s\n", (nTotalElements)/(thrust_time_seconds*1000000000) );
   
   //--
 
@@ -399,7 +399,7 @@ int main(int argc, char* argv[]) {
 
   double reduce_time_seconds = (double) chrono_gettotal( &chrono_Hist )/((double)1000*1000*1000);
   printf( "Tempo em milisegundos: %lf ms\n", reduce_time_seconds*1000 );
-  printf( "Vazão: %lf MINT/s\n", (nTotalElements)/(reduce_time_seconds*1000000) );
+  printf( "Vazão: %lf GINT/s\n", (nTotalElements)/(reduce_time_seconds*1000000000) );
 
   printf("\n--Tempo em relacao ao Thrust\n");
   printf("Em milisegundos: %lf\n", (reduce_time_seconds - thrust_time_seconds)*1000);
