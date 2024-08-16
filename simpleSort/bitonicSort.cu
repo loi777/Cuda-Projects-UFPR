@@ -322,6 +322,6 @@ extern "C" uint bitonicSort(
                 }
     }
 
-    reverseArray<<<blockCount, threadCount>>>(d_DstKey, arrayLength, ceil((float)(arrayLength/2)/(float)blockCount));
+    //reverseArray<<<blockCount, threadCount>>>(d_DstKey, arrayLength, ceil((float)(arrayLength/2)/(float)blockCount));
     return threadCount;
 }

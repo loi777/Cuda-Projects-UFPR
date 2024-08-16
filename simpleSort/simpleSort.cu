@@ -286,6 +286,10 @@ int main(int argc, char* argv[]) {
   if (check_parameters(argc)) { return EXIT_FAILURE; }
   std::srand(std::time(nullptr));
 
+  //u_int nTotalElements = 18;
+  //u_int h = 6;
+  //u_int nR = 2;
+  //u_int Input[] = {2, 4, 33, 27, 8, 10, 42, 3, 12, 21, 10, 12, 15, 27, 38, 45, 18, 22};
   u_int nTotalElements = std::stoi(argv[1]);                    // Numero de elementos
   u_int powerElements = getNextPowerOfTwo(nTotalElements);      // Numero de elementos
   u_int h = std::stoi(argv[2]);                                 // Numero de histogramas
@@ -353,28 +357,25 @@ int main(int argc, char* argv[]) {
       end = h_SHg[bin];
       part_size = end-start;
       while (power < part_size) { power <<= 1; }
-      bitonicSort(d_stage, d_OutputIdx, d_Output+start, d_InputIdx, N / power, power, 0);
-      cudaMemcpy(d_Output+start, d_stage, part_size*sizeof(u_int), cudaMemcpyDeviceToDevice);
+      std::cout << "Power: " << power << std::endl;
+      bitonicSort(d_stage+start, d_OutputIdx, d_Output+start, d_InputIdx, N / power, power, 1);
     }
       power = 1;
       start = end;
       end = nTotalElements;
       part_size = end-start;
       while (power < part_size) { power <<= 1; }
-      bitonicSort(d_stage, d_OutputIdx, d_Output+start, d_InputIdx, N / power, power, 0);
-      cudaMemcpy(d_Output+start, d_stage, part_size*sizeof(u_int), cudaMemcpyDeviceToDevice);
-
-    //bitonicSort(d_Output, d_OutputIdx, d_Input, d_InputIdx, N / powerElements, powerElements, 0);
+      bitonicSort(d_stage+start, d_OutputIdx, d_Output+start, d_InputIdx, N / power, power, 1);
     chrono_stop(&chrono_Hist);
     // --
-    cudaMemcpy(Output, d_Output, powerElements * sizeof(u_int), cudaMemcpyDeviceToHost);
+    cudaMemcpy(Output, d_stage, powerElements * sizeof(u_int), cudaMemcpyDeviceToHost);
     // --
     verifySort(Input, Output, nTotalElements, &chrono_Thrust, k);
   }
 
-  //std::cout << "Output: " << std::endl;
-  //for (size_t i=0; i<powerElements ;i++) std::cout << Output[i] << " ";
-  //std::cout << std::endl;
+  std::cout << "Output: " << std::endl;
+  for (size_t i=0; i<powerElements ;i++) std::cout << Output[i] << " ";
+  std::cout << std::endl;
 
   // ---
 
