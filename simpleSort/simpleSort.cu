@@ -357,7 +357,8 @@ int main(int argc, char* argv[]) {
       end = h_SHg[bin];
       part_size = end-start;
       while (power < part_size) { power <<= 1; }
-      std::cout << "Power: " << power << std::endl;
+      //std::cout << "part_size: " << part_size << std::endl;
+      //std::cout << "Power: " << power << std::endl;
       bitonicSort(d_stage+start, d_OutputIdx, d_Output+start, d_InputIdx, N / power, power, 1);
     }
       power = 1;
@@ -365,6 +366,9 @@ int main(int argc, char* argv[]) {
       end = nTotalElements;
       part_size = end-start;
       while (power < part_size) { power <<= 1; }
+      //std::cout << "part_size: " << part_size << std::endl;
+      //std::cout << "Power: " << power << std::endl;
+      cudaMemset(d_Output+end, UINT_MAX, (power-part_size)*sizeof(u_int));
       bitonicSort(d_stage+start, d_OutputIdx, d_Output+start, d_InputIdx, N / power, power, 1);
     chrono_stop(&chrono_Hist);
     // --
@@ -373,9 +377,9 @@ int main(int argc, char* argv[]) {
     verifySort(Input, Output, nTotalElements, &chrono_Thrust, k);
   }
 
-  std::cout << "Output: " << std::endl;
-  for (size_t i=0; i<powerElements ;i++) std::cout << Output[i] << " ";
-  std::cout << std::endl;
+  //std::cout << "Output: " << std::endl;
+  //for (size_t i=0; i<powerElements ;i++) std::cout << Output[i] << " ";
+  //std::cout << std::endl;
 
   // ---
 
@@ -410,22 +414,8 @@ int main(int argc, char* argv[]) {
   cudaFree(SHg);
   cudaFree(PSv);
 
-  //delete[] Input;
+  delete[] Input;
   delete[] Output;
 
   return EXIT_SUCCESS;
 }
-
-    // launch kernel that that sorts the inside of each bin partition
-    //cudaMemcpy(h_SHg, SHg, h * sizeof(u_int), cudaMemcpyDeviceToHost);
-    //cudaMemcpy(Output, d_Output, nTotalElements * sizeof(u_int), cudaMemcpyDeviceToHost);
-    //u_int start, end = 0;
-    //for (u_int bin = 1; bin < h; bin++) {
-    //  // call a bitonic sort for every bin
-    //  start = end;
-    //  end = h_SHg[bin];
-    //  thrustSortProxy(Output, start, end);
-    //}
-    //start = end;
-    //end = nTotalElements;
-    //thrustSortProxy(Output, start, end);
