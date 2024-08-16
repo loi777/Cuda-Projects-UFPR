@@ -1,3 +1,7 @@
+// AUTORES:
+// Muriki Gusmão Yamanaka - GRR20203933
+// Luiz Fernando Giongo Dos Santos - GRR20203965
+
 #include <iostream>
 #include <cstdlib>
 #include <ctime>
